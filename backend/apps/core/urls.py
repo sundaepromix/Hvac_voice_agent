@@ -10,6 +10,7 @@ urlpatterns = [
     path("channels/", views.ChannelListCreate.as_view(), name="channel-list"),
     path("channels/<int:pk>/", views.ChannelDetail.as_view(), name="channel-detail"),
     path("auth/login/", auth_views.LoginView.as_view(), name="auth-login"),
+    path("auth/login/verify/", auth_views.LoginVerifyView.as_view(), name="auth-login-verify"),
     path("auth/logout/", auth_views.LogoutView.as_view(), name="auth-logout"),
     path("auth/me/", auth_views.MeView.as_view(), name="auth-me"),
     path("admin/migrate/", views.MigrateView.as_view(), name="admin-migrate"),

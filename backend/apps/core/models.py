@@ -1,4 +1,9 @@
+import secrets
+from datetime import timedelta
+
+from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from .crypto import EncryptedCharField
 from .trades import TRADES
@@ -175,6 +180,55 @@ class Business(models.Model):
     @property
     def resolved_whatsapp_verify_token(self) -> str:
         return self._resolved("whatsapp_verify_token", "WHATSAPP_VERIFY_TOKEN")
+
+
+class LoginCode(models.Model):
+    """A short-lived email OTP used as the second factor of login.
+
+    Flow: LoginView verifies password, creates a LoginCode, emails the 6-digit
+    code to the user. LoginVerifyView consumes the code (one-shot) and creates
+    the session. Codes expire in 10 minutes and tolerate at most 5 wrong
+    guesses before being burned.
+    """
+
+    CODE_TTL_MINUTES = 10
+    MAX_ATTEMPTS = 5
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="login_codes",
+    )
+    code = models.CharField(max_length=8)
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    ip = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["user", "-created_at"])]
+
+    def __str__(self) -> str:
+        return f"LoginCode<{self.user_id}, {self.code[:1]}***>"
+
+    @classmethod
+    def issue(cls, user, ip: str = "") -> "LoginCode":
+        return cls.objects.create(
+            user=user,
+            code=f"{secrets.randbelow(1_000_000):06d}",
+            token=secrets.token_urlsafe(32),
+            expires_at=timezone.now() + timedelta(minutes=cls.CODE_TTL_MINUTES),
+            ip=ip or None,
+        )
+
+    @property
+    def is_valid(self) -> bool:
+        return (
+            self.used_at is None
+            and self.attempts < self.MAX_ATTEMPTS
+            and timezone.now() < self.expires_at
+        )
 
 
 class Channel(models.Model):

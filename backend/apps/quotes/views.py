@@ -105,3 +105,32 @@ class PublicQuotePdfView(APIView):
         resp = HttpResponse(data, content_type="application/pdf")
         resp["Content-Disposition"] = f'inline; filename="quote-{quote.reference}.pdf"'
         return resp
+
+
+class DashboardQuotePdfView(APIView):
+    """Stream the rendered PDF by quote id. Authenticated — for the dashboard
+    "Download PDF" button. Renders on demand if not already on disk.
+
+    Works in any environment (no dependency on API_DOMAIN env or absolute URLs):
+    the frontend proxy forwards the request and pipes the bytes back to the
+    browser, which downloads them as a file.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk: int):
+        quote = Quote.objects.filter(pk=pk).first()
+        if quote is None:
+            raise Http404
+        path = _quote_pdf_path(quote)
+        if not os.path.exists(path):
+            try:
+                with open(path, "wb") as fh:
+                    fh.write(render_quote_pdf(quote))
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("[DASHBOARD QUOTE PDF] render failed: %s", exc)
+                return Response({"detail": f"render failed: {exc}"}, status=500)
+        with open(path, "rb") as fh:
+            data = fh.read()
+        resp = HttpResponse(data, content_type="application/pdf")
+        resp["Content-Disposition"] = f'attachment; filename="quote-{quote.reference}.pdf"'
+        return resp

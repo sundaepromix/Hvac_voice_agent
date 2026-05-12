@@ -101,16 +101,23 @@ export default function QuoteEditor({
 
   async function downloadPdf() {
     try {
-      const res = await fetch(`/api/proxy/quotes/${quote.id}/render-pdf`, { method: "POST" });
-      if (!res.ok) throw new Error(`render-pdf returned ${res.status}`);
-      const data = await res.json();
-      if (data?.url) {
-        window.open(data.url, "_blank", "noopener");
-        return;
-      }
-      throw new Error("no url in response");
-    } catch {
-      // Fallback to legacy browser-print path if the server renderer is unavailable.
+      // Stream the PDF bytes directly through the auth proxy so it works
+      // in both local dev (no public domain) and production.
+      const res = await fetch(`/api/proxy/quotes/${quote.id}/pdf`, { method: "GET" });
+      if (!res.ok) throw new Error(`pdf download returned ${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = `quote-${quote.reference || quote.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Free the blob URL on the next tick so the click has time to register.
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (err) {
+      console.error("[downloadPdf]", err);
+      // Fallback to browser-print so the user still gets something.
       window.print();
     }
   }
