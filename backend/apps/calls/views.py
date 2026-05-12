@@ -63,29 +63,40 @@ def _verify_twilio_signature(request) -> bool:
     return validator.validate(url, params, signature)
 
 
-def _verify_chat_completions_secret(request) -> bool:
+def _verify_chat_completions_secret(request, path_secret: str = "") -> bool:
     """Vapi's custom-LLM endpoint shares the same VAPI_WEBHOOK_SECRET.
 
     Public-facing endpoint — anyone can hit it without auth, so the shared
     secret is the only thing keeping a stranger from spending the tenant's
     Anthropic credits. In dev (no secret set) we accept everything.
+
+    Accepts the secret from three places (in priority order):
+      1. URL path segment — `/vapi/k/<SECRET>/chat/completions/` (recommended;
+         Vapi auto-appends `/chat/completions` to model.url and would otherwise
+         corrupt a query string, so a path segment is the cleanest carrier).
+      2. Authorization: Bearer <SECRET> header.
+      3. `X-Vapi-Secret` header OR `?key=SECRET` query (with defensive strip
+         for Vapi's append-quirk).
     """
     expected = (settings.VAPI_WEBHOOK_SECRET or "").strip()
     if not expected:
         return True
-    # Vapi sends it as a Bearer token on the custom-LLM endpoint, but Vapi's
-    # Custom LLM UI doesn't always expose a header field — fall back to query
-    # string `?key=...` so the secret can travel in the URL itself.
+    if path_secret and hmac.compare_digest(expected, path_secret.strip()):
+        return True
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
         received = auth[7:].strip()
     else:
-        received = (
+        # If the secret travels in `?key=`, Vapi may have appended
+        # "/chat/completions" inside the query value — strip from the first
+        # slash so the real secret survives.
+        raw = (
             request.headers.get("X-Vapi-Secret", "")
             or request.GET.get("key", "")
             or request.GET.get("secret", "")
         )
-    return hmac.compare_digest(expected, received.strip())
+        received = raw.split("/", 1)[0].strip()
+    return hmac.compare_digest(expected, received)
 
 
 class CallList(generics.ListAPIView):
@@ -141,15 +152,18 @@ def _openai_to_claude(messages: list) -> list:
 
 
 @csrf_exempt
-def chat_completions(request):
+def chat_completions(request, secret: str = ""):
     """OpenAI-compatible chat completions endpoint for Vapi's custom LLM mode.
 
     Vapi POSTs the running conversation here on every turn; we run Mary's agentic
     loop (Claude + tools) and return a single completion. SSE streaming supported.
+
+    `secret` may be present as a URL path segment (recommended) — see
+    `_verify_chat_completions_secret` for full auth-source priority.
     """
     if request.method != "POST":
         return JsonResponse({"error": "Method not allowed"}, status=405)
-    if not _verify_chat_completions_secret(request):
+    if not _verify_chat_completions_secret(request, path_secret=secret):
         logger.warning("[CUSTOM LLM] Unauthorized — bad/missing shared secret")
         return JsonResponse({"error": "unauthorized"}, status=401)
     if is_ratelimited(request, group="vapi-chat-ip", key="ip", rate="120/m", increment=True):

@@ -14,4 +14,13 @@ urlpatterns = [
     path("vapi/chat/completions", views.chat_completions, name="vapi-chat-completions-noslash"),
     path("vapi/", views.chat_completions, name="vapi-chat-completions-bare"),
     path("vapi", views.chat_completions, name="vapi-chat-completions-bare-noslash"),
+    # Keyed variants — Vapi appends "/chat/completions" to model.url, which
+    # corrupts any query string ("?key=SECRET/chat/completions"). Putting the
+    # secret in the PATH instead survives the auto-append cleanly.
+    # Set model.url = "https://.../api/calls/vapi/k/<SECRET>" — Vapi will hit
+    # ".../api/calls/vapi/k/<SECRET>/chat/completions" which matches below.
+    path("vapi/k/<str:secret>/chat/completions/", views.chat_completions, name="vapi-chat-keyed"),
+    path("vapi/k/<str:secret>/chat/completions", views.chat_completions, name="vapi-chat-keyed-noslash"),
+    path("vapi/k/<str:secret>/", views.chat_completions, name="vapi-chat-keyed-bare"),
+    path("vapi/k/<str:secret>", views.chat_completions, name="vapi-chat-keyed-bare-noslash"),
 ]
