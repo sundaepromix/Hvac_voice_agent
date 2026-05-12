@@ -10376,3 +10376,213 @@ html[dir="rtl"] .pipeline-num { direction: ltr; unicode-bidi: isolate; }
 @media (max-width: 480px) {
   .install-snippet { font-size: 11px; padding: 8px 10px; }
 }
+
+/* ============================================================
+   MOBILE TIGHTENING — appended late so it wins over earlier rules
+   without rewriting the existing breakpoints. Targets <=480px
+   (phones) and 481-720px (tablets / small laptops in portrait).
+   ============================================================ */
+
+/* Global: never let anything cause horizontal scroll on mobile, and
+   honour iOS safe areas so content doesn't sit under the notch / home bar. */
+html, body {
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+@supports (padding: max(0px)) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* Tap targets — anything that's a button or link-button needs to hit
+   the 44x44 iOS / 48x48 Material minimum. */
+@media (max-width: 720px) {
+  .btn, .btn-primary, .btn-ghost, .btn-onDark-ghost,
+  .topbar-cta, .auth-submit, .contact-submit,
+  button[type="submit"], button[type="button"] {
+    min-height: 44px;
+  }
+  /* Prevent iOS auto-zoom on focus: font-size must be >= 16px on inputs. */
+  input, select, textarea, .auth-input {
+    font-size: 16px !important;
+  }
+}
+
+/* ---- Shell + sections ---- */
+@media (max-width: 720px) {
+  .shell { padding: 0 16px; }
+  .section { padding: 56px 0; }
+  .section-tight { padding: 36px 0; }
+  .section-head { margin-bottom: 32px; }
+  .section-title { font-size: clamp(26px, 6vw, 36px) !important; line-height: 1.15 !important; }
+  .section-sub { font-size: 15px !important; line-height: 1.55 !important; }
+}
+@media (max-width: 480px) {
+  .shell { padding: 0 14px; }
+  .section { padding: 44px 0; }
+  .section-tight { padding: 28px 0; }
+}
+
+/* ---- Hero ---- */
+@media (max-width: 720px) {
+  .hero { padding: 56px 0 36px !important; }
+  .hero-title { font-size: clamp(30px, 8.4vw, 42px) !important; line-height: 1.08 !important; margin-bottom: 16px !important; }
+  .hero-sub { font-size: 16px !important; line-height: 1.5 !important; padding: 0 4px; }
+  .hero-actions { flex-direction: column !important; gap: 10px !important; width: 100%; }
+  .hero-actions > * { width: 100%; justify-content: center; }
+  .hero-platform-pill { font-size: 12px; }
+  .hero-trades { font-size: 13px; }
+  .hero-trades-list { display: block; margin-top: 4px; }
+}
+@media (max-width: 480px) {
+  .hero { padding: 40px 0 28px !important; }
+  .hero-title { font-size: clamp(28px, 9.5vw, 36px) !important; }
+  .hero-sub { font-size: 15px !important; }
+}
+
+/* ---- Topbar ---- */
+@media (max-width: 720px) {
+  .topbar { padding: 10px 0; }
+  .brand { font-size: 17px; }
+  .nav-links { display: none; }              /* mobile sheet covers it */
+  .topbar-cta { padding: 8px 14px !important; font-size: 13px !important; }
+  .topbar-right { gap: 6px !important; }
+}
+
+/* ---- Mock dashboard preview on hero ---- */
+@media (max-width: 720px) {
+  .mock-dashboard { font-size: 12px; }
+  .mock-dashboard-section { padding-top: 8px; }
+  .mock-kpis { grid-template-columns: 1fr !important; gap: 8px !important; }
+  .mock-table, .mock-table th, .mock-table td { font-size: 11.5px; }
+  .mock-table th:nth-child(n+4), .mock-table td:nth-child(n+4) { display: none; } /* hide rightmost cols on tiny screens */
+}
+
+/* ---- Industries grid ---- */
+@media (max-width: 720px) {
+  .industries-grid, .industries-grid-wide { grid-template-columns: 1fr !important; gap: 16px !important; }
+  .industries-tagrow { flex-wrap: wrap; gap: 8px; }
+  .industries-tag { font-size: 12px; padding: 4px 10px; }
+}
+
+/* ---- Feature explorer ---- */
+@media (max-width: 880px) {
+  .fexp { grid-template-columns: 1fr !important; gap: 12px !important; }
+  .fexp-rows { grid-template-columns: 1fr !important; }
+}
+
+/* ---- Apps band (iPhone/Android section) ---- */
+@media (max-width: 880px) {
+  .apps-band { grid-template-columns: 1fr !important; gap: 24px !important; }
+  .apps-band-art { order: -1; display: flex; justify-content: center; }
+  .apps-phone-frame { transform: scale(0.85); transform-origin: top center; }
+}
+@media (max-width: 480px) {
+  .apps-phone-frame { transform: scale(0.7); }
+  .apps-band-title { font-size: 28px !important; line-height: 1.15; }
+}
+
+/* ---- Missed-call story ---- */
+@media (max-width: 720px) {
+  .story-scene, .story-card { padding: 16px !important; }
+  .story-title { font-size: clamp(26px, 6.5vw, 36px) !important; }
+}
+
+/* ---- Stats band ---- */
+@media (max-width: 720px) {
+  .stats-band, .statsband { grid-template-columns: 1fr !important; gap: 18px !important; }
+  .stats-cards { grid-template-columns: 1fr !important; }
+}
+
+/* ---- Config band ---- */
+@media (max-width: 720px) {
+  .config-band { grid-template-columns: 1fr !important; gap: 18px !important; }
+  .config-knobs { grid-template-columns: 1fr !important; }
+}
+
+/* ---- Final CTA + footer ---- */
+@media (max-width: 720px) {
+  .final-cta { padding: 36px 18px !important; }
+  .final-cta-title { font-size: clamp(24px, 6vw, 34px) !important; }
+  .final-cta-actions { flex-direction: column; gap: 10px; width: 100%; }
+  .final-cta-actions > * { width: 100%; justify-content: center; }
+  .footer { grid-template-columns: 1fr !important; gap: 24px !important; padding: 32px 0 24px !important; }
+  .footer-col { gap: 6px; }
+}
+
+/* ---- Contact page ---- */
+@media (max-width: 880px) {
+  .contact-grid { grid-template-columns: 1fr !important; gap: 20px !important; }
+}
+@media (max-width: 720px) {
+  .contact-page .hero-tight { padding: 36px 0 16px !important; }
+  .contact-channel { padding: 14px !important; }
+  .contact-card { padding: 18px !important; }
+  .contact-row { grid-template-columns: 1fr !important; gap: 12px !important; }
+}
+
+/* ---- FAQ + Docs + Legal pages ---- */
+@media (max-width: 720px) {
+  .faq-list { gap: 10px; }
+  .faq-q { font-size: 15px; }
+  .faq-a { font-size: 14px; }
+  .docs-grid, .docs-body { grid-template-columns: 1fr !important; }
+  .docs-aside { position: static !important; max-width: 100% !important; }
+  .legal-doc { padding: 24px 16px !important; }
+}
+
+/* ---- Login auth screen ---- */
+@media (max-width: 480px) {
+  .auth-shell { padding: 24px 16px !important; }
+  .auth-card { padding: 22px !important; border-radius: 14px !important; }
+  .auth-title { font-size: 22px !important; }
+  .auth-input { padding: 12px 14px !important; }
+}
+
+/* ---- Chat widget + phone widget previews ---- */
+@media (max-width: 480px) {
+  .chat-widget { right: 12px !important; bottom: 12px !important; }
+  .phone-widget { transform: scale(0.92); transform-origin: bottom center; }
+  .live-ticker { font-size: 11.5px; }
+}
+
+/* ---- Dashboard app shell ---- */
+@media (max-width: 880px) {
+  .app-shell { grid-template-columns: 1fr !important; }
+  .app-sidebar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 60;
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .app-sidebar .sidebar-nav { flex-direction: row; gap: 6px; }
+  .app-main { padding-top: 64px !important; }
+  /* Dashboard tables: let them scroll horizontally instead of breaking the layout */
+  .dashboard-table-wrap, .table-wrap, .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .dashboard-table, .data-table { min-width: 560px; }
+  /* Forms in dashboard */
+  .form-row, .field-row { grid-template-columns: 1fr !important; gap: 12px !important; }
+}
+
+/* Generic: any 2-col grid drops to 1 col on phones */
+@media (max-width: 540px) {
+  [class*="grid-cols-2"]:not(.no-mobile-collapse),
+  [class*="two-col"]:not(.no-mobile-collapse) {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Reduce motion-heavy backgrounds on mobile for performance */
+@media (max-width: 720px) {
+  .hero-backdrop, .hero-glow, .ember-line { opacity: 0.5; }
+}
+
