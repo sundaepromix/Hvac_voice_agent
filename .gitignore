@@ -1,0 +1,42 @@
+# env (NEVER commit)
+.env
+.env.local
+.env.*.local
+*.env
+!*.env.example
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# django
+db.sqlite3
+staticfiles/
+media/
+
+# node
+node_modules/
+.next/
+out/
+*.log
+
+# os
+.DS_Store
+.idea/
+.vscode/
+
+# screenshots / scratch
+screenshots-ref/
+*.png.bak
+.env.vercel*
+.vercel
+dropline.pem
+
+# secrets / credentials — never commit
+secrets/
+*credentials*.json
+*service-account*.json

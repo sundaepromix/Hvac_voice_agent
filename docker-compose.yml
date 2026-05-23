@@ -1,0 +1,77 @@
+# Local-development stack: hot-reload Django + Next.js, dev Postgres.
+# DO NOT use this in production — runserver isn't a production server, the
+# Postgres password is in plaintext, and ports are exposed on the host.
+# For VPS deployments use `docker-compose.prod.yml` (gunicorn + Caddy + HTTPS).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dropline}
+      POSTGRES_USER: ${POSTGRES_USER:-dropline}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dropline_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - dropline_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dropline}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+
+  frontend:
+    build: ./frontend
+    env_file: .env
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api
+      INTERNAL_API_URL: http://backend:8000/api
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
+    depends_on:
+      - backend
+
+  # Public HTTPS tunnel via Cloudflare (zero-signup, free, ephemeral URL).
+  #     docker compose --profile tunnel up -d tunnel
+  # The public URL is printed in `docker compose logs tunnel`.
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    command: tunnel --url http://backend:8000 --no-autoupdate
+    depends_on:
+      - backend
+
+  # Optional: ngrok (requires NGROK_AUTHTOKEN — sign up at ngrok.com)
+  ngrok:
+    image: ngrok/ngrok:latest
+    profiles: ["ngrok"]
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+    command: http backend:8000 --log=stdout
+    ports:
+      - "4040:4040"
+    depends_on:
+      - backend
+
+volumes:
+  dropline_pg:

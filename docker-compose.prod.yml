@@ -1,0 +1,81 @@
+# Production stack — Django backend + Next.js frontend + Caddy reverse proxy.
+#
+# Database: external (Neon, Supabase, Aiven, etc.) — set DATABASE_URL in .env.
+# If you prefer a local Postgres container, add a `db:` service back and point
+# DATABASE_URL at it.
+#
+# Quick start on a fresh Ubuntu host:
+#
+#   git clone <your-fork-url>
+#   cd dropline
+#   cp .env.example .env       # fill in DJANGO_SECRET_KEY, ANTHROPIC_API_KEY, etc.
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# DNS:
+#   API_DOMAIN  (api.example.com)        →  this host's public IP   (Caddy → backend)
+#   APP_DOMAIN  (app.example.com)        →  this host's public IP   (Caddy → frontend)
+# Caddy auto-issues Let's Encrypt certs once both records resolve.
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DJANGO_DEBUG: "0"
+      # `backend` lets the Next.js BFF reach Django over the internal docker
+      # network without tripping Django's DisallowedHost guard.
+      DJANGO_ALLOWED_HOSTS: ${API_DOMAIN},backend,localhost,127.0.0.1
+      DJANGO_CORS_ALLOWED_ORIGINS: ${FRONTEND_ORIGIN:-https://workflowauth.com}
+      # Quote PDFs land here; the volume below keeps them across rebuilds.
+      QUOTE_PDF_DIR: /var/data/quotes
+      DJANGO_CACHE_DIR: /var/data/django-cache
+    volumes:
+      - dropline_quote_pdfs:/var/data/quotes
+      - dropline_django_cache:/var/data/django-cache
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        NEXT_PUBLIC_API_URL: https://${API_DOMAIN}/api
+        NEXT_PUBLIC_ADMIN_URL: https://${API_DOMAIN}/admin/
+    restart: unless-stopped
+    environment:
+      INTERNAL_API_URL: http://backend:8000/api
+      NEXT_PUBLIC_API_URL: https://${API_DOMAIN}/api
+      NEXT_PUBLIC_ADMIN_URL: https://${API_DOMAIN}/admin/
+      NODE_ENV: production
+    expose:
+      - "3000"
+    depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN in .env}
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  caddy_data:
+  caddy_config:
+  dropline_quote_pdfs:
+  dropline_django_cache:

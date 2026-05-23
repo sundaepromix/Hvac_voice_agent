@@ -1,0 +1,42 @@
+# Caddy reverse proxy — auto-HTTPS via Let's Encrypt for two subdomains:
+#   API_DOMAIN  → Django backend (gunicorn) on :8000
+#   APP_DOMAIN  → Next.js frontend on :3000
+#
+# Set both in .env. DNS for each must be a non-proxied A record pointing at this host
+# (gray cloud on Cloudflare) — proxied DNS breaks the ALPN challenge.
+
+{
+    email admin@workflowauth.com
+    acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
+{$API_DOMAIN} {
+    encode zstd gzip
+
+    reverse_proxy backend:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote}
+        header_up X-Forwarded-For {remote}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    request_body {
+        max_size 8MB
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+}
+
+{$APP_DOMAIN} {
+    encode zstd gzip
+
+    reverse_proxy frontend:3000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote}
+        header_up X-Forwarded-For {remote}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}

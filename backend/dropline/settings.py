@@ -1,0 +1,238 @@
+"""Django settings for Workflow Auth."""
+import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-only-not-for-production")
+DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
+_default_allowed_hosts = "localhost,127.0.0.1,backend"
+if DEBUG:
+    _default_allowed_hosts += ",.ngrok-free.app,.ngrok.app,.ngrok.io,.trycloudflare.com"
+ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", _default_allowed_hosts).split(",")
+
+INSTALLED_APPS = [
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "rest_framework",
+    "corsheaders",
+    "apps.core",
+    "apps.leads",
+    "apps.calls",
+    "apps.quotes",
+    "apps.ai",
+    "apps.support",
+    "django_ratelimit",
+]
+
+# Cache backend choice matters: gunicorn runs 3 workers, and the receptionist
+# uses cache for per-call tool dedupe (sms_sent, tool_done, end_deferred). A
+# locmem cache is per-process so 2 of 3 workers miss every lookup, and Mary
+# re-fires tools across worker boundaries. FileBasedCache is shared by all
+# workers on the same host without needing Redis. Move to Redis when scaling
+# horizontally.
+import os as _os  # noqa: E402
+
+_CACHE_DIR = _os.environ.get("DJANGO_CACHE_DIR", "/var/data/django-cache")
+try:
+    _os.makedirs(_CACHE_DIR, exist_ok=True)
+    _CACHES_BACKEND = {
+        "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+        "LOCATION": _CACHE_DIR,
+        "TIMEOUT": 3600,
+        "OPTIONS": {"MAX_ENTRIES": 5000},
+    }
+except OSError:
+    # Fall back to locmem when the host doesn't have a writable shared dir
+    # (local dev without the docker volume).
+    _CACHES_BACKEND = {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "dropline-default",
+    }
+
+CACHES = {"default": _CACHES_BACKEND}
+SILENCED_SYSTEM_CHECKS = ["django_ratelimit.E003", "django_ratelimit.W001"]
+
+MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
+    "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+]
+
+ROOT_URLCONF = "dropline.urls"
+
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+            ],
+        },
+    },
+]
+
+WSGI_APPLICATION = "dropline.wsgi.application"
+ASGI_APPLICATION = "dropline.asgi.application"
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get("POSTGRES_DB", "dropline"),
+        "USER": os.environ.get("POSTGRES_USER", "dropline"),
+        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "dropline_dev"),
+        "HOST": os.environ.get("POSTGRES_HOST", "db"),
+        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+    }
+}
+
+# Railway / Heroku style: if DATABASE_URL is provided, use it (overrides individual vars).
+_database_url = os.environ.get("DATABASE_URL")
+if _database_url:
+    try:
+        import dj_database_url  # type: ignore
+        DATABASES["default"] = dj_database_url.parse(_database_url, conn_max_age=600, ssl_require=False)
+    except ImportError:
+        # Lightweight fallback parser if dj_database_url isn't installed.
+        from urllib.parse import urlparse
+        parsed = urlparse(_database_url)
+        DATABASES["default"] = {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": (parsed.path or "/").lstrip("/"),
+            "USER": parsed.username or "",
+            "PASSWORD": parsed.password or "",
+            "HOST": parsed.hostname or "",
+            "PORT": str(parsed.port or 5432),
+        }
+
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
+
+LANGUAGE_CODE = "en-us"
+TIME_ZONE = "UTC"
+USE_I18N = True
+USE_TZ = True
+
+STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
+
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+REST_FRAMEWORK = {
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "apps.core.authentication.CsrfExemptSessionAuthentication",
+    ],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 50,
+}
+
+_default_cors = "http://localhost:3000,http://127.0.0.1:3000"
+CORS_ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get("DJANGO_CORS_ALLOWED_ORIGINS", _default_cors).split(",")
+    if o.strip()
+]
+CORS_ALLOW_CREDENTIALS = True
+
+# Behind a reverse proxy (Railway / Vercel proxy / nginx), trust the X-Forwarded-Proto header.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
+
+# Production hardening (no-op when DEBUG=1)
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+
+CSRF_TRUSTED_ORIGINS = [
+    o.replace("http://", "https://") if o.startswith("http://") else o
+    for o in CORS_ALLOWED_ORIGINS
+] + [
+    "https://*.ngrok-free.app",
+    "https://*.ngrok.app",
+    "https://*.ngrok.io",
+]
+
+# Logging — surface app-level logs (call transcripts, tool calls) to stdout
+# so `docker compose logs -f backend` shows the running call. Override the
+# default via DROPLINE_LOG_LEVEL=DEBUG when chasing a specific bug.
+_app_log_level = os.environ.get("DROPLINE_LOG_LEVEL", "INFO").upper()
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "simple": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"},
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "simple"},
+    },
+    "loggers": {
+        "apps": {"handlers": ["console"], "level": _app_log_level, "propagate": False},
+    },
+    "root": {"handlers": ["console"], "level": "WARNING"},
+}
+
+# AI
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+
+# Voice
+VAPI_API_KEY = os.environ.get("VAPI_API_KEY", "")
+VAPI_PHONE_NUMBER_ID = os.environ.get("VAPI_PHONE_NUMBER_ID", "")
+VAPI_WEBHOOK_SECRET = os.environ.get("VAPI_WEBHOOK_SECRET", "")
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "")
+
+# Email — Django SMTP. Set EMAIL_HOST + EMAIL_HOST_USER + EMAIL_HOST_PASSWORD
+# in .env (works with Resend, SendGrid, Postmark, Gmail SMTP, etc.). If unset,
+# send_email() stubs to stdout so dev never crashes.
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587") or "587")
+EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "").lower() in ("1", "true", "yes")
+EMAIL_USE_TLS = not EMAIL_USE_SSL and os.environ.get("EMAIL_USE_TLS", "true").lower() in ("1", "true", "yes")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "no-reply@workflowauth.com")
+
+# ----- Production hard-fail guards ---------------------------------------
+# Refuse to boot when DEBUG=0 with insecure defaults still in place. Prevents
+# the entire class of "shipped to prod with dev secrets" outages.
+if not DEBUG:
+    if SECRET_KEY == "dev-only-not-for-production":
+        raise RuntimeError(
+            "DJANGO_SECRET_KEY is not set. Refusing to start with the dev fallback."
+        )
+    if not os.environ.get("DROPLINE_ENCRYPTION_KEY", "").strip():
+        raise RuntimeError(
+            "DROPLINE_ENCRYPTION_KEY is not set. API keys would be encrypted "
+            "with a SECRET_KEY-derived dev fallback — refusing to start. "
+            "Generate one with: "
+            "python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+        )
