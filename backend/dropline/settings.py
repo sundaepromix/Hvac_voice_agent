@@ -221,6 +221,11 @@ EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "").lower() in ("1", "true", "ye
 EMAIL_USE_TLS = not EMAIL_USE_SSL and os.environ.get("EMAIL_USE_TLS", "true").lower() in ("1", "true", "yes")
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "no-reply@workflowauth.com")
 
+# 2-step email OTP login. Off by default: a correct password signs you in
+# directly. Set LOGIN_REQUIRE_OTP=1 to require the emailed 6-digit code (needs
+# working SMTP above, or users with an email on file will be locked out).
+LOGIN_REQUIRE_OTP = os.environ.get("LOGIN_REQUIRE_OTP", "").lower() in ("1", "true", "yes")
+
 # ----- Production hard-fail guards ---------------------------------------
 # Refuse to boot when DEBUG=0 with insecure defaults still in place. Prevents
 # the entire class of "shipped to prod with dev secrets" outages.

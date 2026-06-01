@@ -55,10 +55,22 @@ def _mask_email(email: str) -> str:
     return f"{name[0]}***@{domain}"
 
 
-def _send_login_code(user, code: str) -> bool:
-    """Email the OTP. Returns True if delivered. Falls back to stdout log if no SMTP."""
+def _send_login_code(user, code: str) -> str:
+    """Email the OTP.
+
+    Returns a delivery status the caller uses to decide whether the user can
+    proceed to the code-entry step:
+
+      "sent"    — handed to SMTP successfully.
+      "no_smtp" — no SMTP configured. Code is logged to stdout as a dev fallback.
+      "failed"  — SMTP configured but send() raised (bad creds, blocked IP, …).
+
+    A silent failure here used to trap users on the "check your email" screen
+    with a code that was never delivered, so callers must treat anything other
+    than "sent" as a hard error in production.
+    """
     if not user.email:
-        return False
+        return "no_smtp"
     has_smtp = bool(
         getattr(dj_settings, "EMAIL_HOST", "")
         and getattr(dj_settings, "EMAIL_HOST_USER", "")
@@ -66,7 +78,7 @@ def _send_login_code(user, code: str) -> bool:
     if not has_smtp:
         # Dev fallback so you can copy the code from `docker compose logs backend`.
         logger.info("[LOGIN OTP] (no SMTP) user=%s code=%s", user.email, code)
-        return False
+        return "no_smtp"
 
     from_addr = getattr(dj_settings, "DEFAULT_FROM_EMAIL", "no-reply@workflowauth.com")
     body = (
@@ -85,10 +97,10 @@ def _send_login_code(user, code: str) -> bool:
             to=[user.email],
         ).send(fail_silently=False)
         logger.info("[LOGIN OTP] sent user=%s", user.email)
-        return True
+        return "sent"
     except Exception as exc:  # noqa: BLE001
         logger.error("[LOGIN OTP] email failed user=%s err=%s", user.email, exc)
-        return False
+        return "failed"
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -138,6 +150,13 @@ class LoginView(APIView):
         if not user.is_active:
             return Response({"detail": "Account is disabled."}, status=403)
 
+        # OTP is opt-in. When LOGIN_REQUIRE_OTP is off (the default), a correct
+        # password grants the session directly — no email round-trip, no lockout
+        # if SMTP is down. Flip LOGIN_REQUIRE_OTP=1 to re-enable 2-step login.
+        if not getattr(dj_settings, "LOGIN_REQUIRE_OTP", False):
+            login(request, user)
+            return Response({"user": _serialize(user), "requires_otp": False})
+
         # No email on the user record? Skip OTP and grant session directly
         # (legacy/safety path so users aren't locked out forever). Warn loudly.
         if not user.email:
@@ -156,7 +175,20 @@ class LoginView(APIView):
             user=user,
             ip=request.META.get("REMOTE_ADDR", ""),
         )
-        delivered = _send_login_code(user, code.code)
+        status = _send_login_code(user, code.code)
+
+        # Never strand the user on the code screen with a code they can't receive.
+        # "failed" (SMTP send raised) is always a hard error. "no_smtp" is only
+        # tolerated in DEBUG, where the code is logged to stdout for local dev;
+        # in production it means email isn't configured — surface it instead of
+        # asking for a code that was never sent.
+        if status == "failed" or (status == "no_smtp" and not dj_settings.DEBUG):
+            return Response(
+                {"detail": "We couldn't send your sign-in code. Please try again "
+                           "in a moment, or contact support if this keeps happening."},
+                status=503,
+            )
+
         return Response({
             "requires_otp": True,
             "login_token": code.token,
@@ -164,7 +196,7 @@ class LoginView(APIView):
             "expires_in_minutes": LoginCode.CODE_TTL_MINUTES,
             # In dev where SMTP isn't configured the code is logged but not emailed.
             # We never echo the code back in the API response — admins read it from logs.
-            "delivered": delivered,
+            "delivered": status == "sent",
         })
 
 
