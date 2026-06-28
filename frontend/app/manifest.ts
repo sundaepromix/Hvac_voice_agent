@@ -2,10 +2,10 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Workflow Auth — AI front desk for home services",
-    short_name: "Workflow Auth",
+    name: "WorkflowAuth — AI voice agent for inbound + outbound calls",
+    short_name: "WorkflowAuth",
     description:
-      "Phone, SMS, WhatsApp, email, chat — every customer touchpoint qualified, quoted, and dispatched without anyone picking up the phone.",
+      "Answer every call and chase every lead — speed-to-lead, follow-ups, and reactivation. A 24/7 AI voice agent for any business that lives on the phone.",
     start_url: "/",
     scope: "/",
     display: "standalone",

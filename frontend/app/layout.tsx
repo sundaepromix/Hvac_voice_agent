@@ -19,50 +19,50 @@ const SITE_URL = "https://workflowauth.com";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Workflow Auth — The 24/7 AI front desk for home-service teams",
-    template: "%s · Workflow Auth",
+    default: "WorkflowAuth — AI voice agent that answers every call and chases every lead",
+    template: "%s · WorkflowAuth",
   },
   description:
-    "Phone, SMS, WhatsApp, email, chat — every customer touchpoint qualified, quoted, and dispatched without anyone picking up the phone.",
-  applicationName: "Workflow Auth",
+    "WorkflowAuth answers your inbound calls and calls leads back — speed-to-lead, follow-ups, and reactivation. A 24/7 AI voice agent for any business that lives on the phone.",
+  applicationName: "WorkflowAuth",
   generator: "Next.js",
-  authors: [{ name: "the Workflow Auth team", url: "https://workflowauth.com" }],
-  creator: "the Workflow Auth team",
-  publisher: "Workflow Auth",
+  authors: [{ name: "Promise Sunday", url: "https://workflowauth.com" }],
+  creator: "Promise Sunday",
+  publisher: "WorkflowAuth",
   keywords: [
+    "AI voice agent",
+    "AI phone answering",
+    "speed to lead",
+    "lead reactivation",
+    "outbound calling AI",
     "AI receptionist",
-    "AI front desk",
-    "home services AI",
-    "HVAC AI",
-    "plumbing AI receptionist",
     "Vapi",
     "Twilio AI",
     "missed call automation",
-    "open source AI receptionist",
-    "Mary AI",
+    "open source AI voice agent",
   ],
   category: "business",
   alternates: { canonical: "/" },
   openGraph: {
     type: "website",
-    siteName: "Workflow Auth",
-    title: "Workflow Auth — The 24/7 AI front desk for home-service teams",
+    siteName: "WorkflowAuth",
+    title: "WorkflowAuth — AI voice agent for inbound + outbound calls",
     description:
-      "Phone, SMS, WhatsApp, email, chat — every customer touchpoint qualified, quoted, and dispatched without anyone picking up the phone.",
+      "Answer every call. Chase every lead. Speed-to-lead, follow-ups, and reactivation — around the clock.",
     url: SITE_URL,
     locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Workflow Auth — The 24/7 AI front desk for home-service teams",
+    title: "WorkflowAuth — AI voice agent for inbound + outbound calls",
     description:
-      "Mary answers, qualifies, and books — so your crew sleeps and your calendar fills itself.",
-    site: "@dropline",
-    creator: "@dropline",
+      "Answer every call. Chase every lead. Speed-to-lead, follow-ups, and reactivation — around the clock.",
+    site: "@workflowauth",
+    creator: "@workflowauth",
   },
   appleWebApp: {
     capable: true,
-    title: "Workflow Auth",
+    title: "WorkflowAuth",
     statusBarStyle: "black-translucent",
   },
   robots: {
@@ -96,14 +96,14 @@ export const viewport: Viewport = {
 const ORG_JSONLD = {
   "@context": "https://schema.org",
   "@type": "Organization",
-  name: "Workflow Auth",
+  name: "WorkflowAuth",
   url: SITE_URL,
   logo: `${SITE_URL}/icon.svg`,
   description:
-    "Open-source 24/7 AI front desk for home-service teams — phone, SMS, WhatsApp, email, chat.",
+    "Open-source 24/7 AI voice agent — answers inbound calls and places outbound calls for speed-to-lead, follow-ups, reactivation, and reminders.",
   founder: {
     "@type": "Person",
-    name: "the Workflow Auth team",
+    name: "Promise Sunday",
     url: "https://workflowauth.com",
   },
   sameAs: [
@@ -115,10 +115,10 @@ const ORG_JSONLD = {
 const WEBSITE_JSONLD = {
   "@context": "https://schema.org",
   "@type": "WebSite",
-  name: "Workflow Auth",
+  name: "WorkflowAuth",
   url: SITE_URL,
   inLanguage: "en",
-  publisher: { "@type": "Organization", name: "Workflow Auth" },
+  publisher: { "@type": "Organization", name: "WorkflowAuth" },
 };
 
 const THEME_INIT = `(function(){try{var s=localStorage.getItem('hl-theme');var m=window.matchMedia('(prefers-color-scheme: dark)').matches;var t=s||(m?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`;

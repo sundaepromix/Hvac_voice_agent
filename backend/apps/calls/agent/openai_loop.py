@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-OPENAI_MODEL = "gpt-4o"
+# gpt-4o-mini has dramatically lower time-to-first-token than gpt-4o, which is
+# what voice callers feel as latency. Override with OPENAI_MODEL if you need a
+# bigger model for a specific business.
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 
 def _tools_for_openai(tools: list[dict]) -> list[dict]:
@@ -104,7 +108,8 @@ def run_openai_loop(
     while True:
         resp = client.chat.completions.create(
             model=OPENAI_MODEL,
-            max_tokens=1024,
+            max_tokens=400,
+            temperature=0.5,
             tools=oa_tools,
             messages=oa_messages,
         )

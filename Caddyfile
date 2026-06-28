@@ -18,6 +18,9 @@
         header_up X-Real-IP {remote}
         header_up X-Forwarded-For {remote}
         header_up X-Forwarded-Proto {scheme}
+        # Stream the Vapi custom-LLM SSE response straight through instead of
+        # buffering it — keeps Mary's voice responses low-latency.
+        flush_interval -1
     }
 
     request_body {

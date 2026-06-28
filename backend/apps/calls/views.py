@@ -20,11 +20,14 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from django.utils import timezone as dj_timezone
+
 from apps.calls.agent.receptionist import handle_conversation_turn
 from apps.core.models import Business
+from apps.leads.models import Lead
 
-from .models import Call
-from .serializers import CallSerializer
+from .models import Call, OutboundTask
+from .serializers import CallSerializer, OutboundTaskSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -377,3 +380,87 @@ class TwilioWebhook(APIView):
             },
         )
         return Response({"ok": True, "call_id": call.id})
+
+
+# --------------------------------------------------------------------------- #
+# Outbound calling API
+# --------------------------------------------------------------------------- #
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def outbound_list(request):
+    """Recent + queued outbound tasks for the dashboard outreach view."""
+    business = Business.objects.first()
+    if not business:
+        return Response([])
+    qs = (
+        OutboundTask.objects.filter(business=business)
+        .select_related("lead", "lead__customer", "call")[:200]
+    )
+    return Response(OutboundTaskSerializer(qs, many=True).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def outbound_call_now(request):
+    """Queue an immediate outbound call and place it right away ('Call now')."""
+    from .services.outbound import enqueue, place_call
+
+    business = Business.objects.first()
+    if not business:
+        return Response({"error": "no business configured"}, status=400)
+
+    kind = request.data.get("kind", "speed_to_lead")
+    to_number = (request.data.get("to_number") or "").strip()
+    lead = None
+    lead_id = request.data.get("lead_id")
+    if lead_id:
+        lead = (
+            Lead.objects.filter(business=business, id=lead_id)
+            .select_related("customer").first()
+        )
+        if lead and not to_number:
+            to_number = (lead.customer.phone or "").strip()
+    if not to_number:
+        return Response({"error": "missing phone number"}, status=400)
+
+    task = enqueue(business, kind=kind, to_number=to_number, lead=lead,
+                   scheduled_for=dj_timezone.now())
+    result = place_call(task)
+    task.attempts += 1
+    task.last_attempt_at = dj_timezone.now()
+    if result.get("success"):
+        task.status = "completed"
+        if result.get("call_id"):
+            task.call_id = result["call_id"]
+    else:
+        task.status = "failed"
+        task.last_error = (result.get("error") or "call_failed")[:255]
+    task.save()
+    return Response({"task": OutboundTaskSerializer(task).data, "result": result})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def outbound_reactivate(request):
+    """Queue a reactivation campaign over cold / lost leads."""
+    from .services.outbound import enqueue_reactivation_campaign
+
+    business = Business.objects.first()
+    if not business:
+        return Response({"error": "no business configured"}, status=400)
+    queued = enqueue_reactivation_campaign(business)
+    return Response({"queued": queued})
+
+
+@api_view(["GET", "POST"])
+@permission_classes([AllowAny])
+def outbound_cron(request, secret=""):
+    """Vercel-Cron entry point. Protected by a path secret when configured."""
+    from .services.outbound import run_due_tasks
+
+    expected = (getattr(settings, "OUTBOUND_CRON_SECRET", "") or "").strip()
+    if expected and secret != expected:
+        return JsonResponse({"error": "forbidden"}, status=403)
+    summary = run_due_tasks()
+    return JsonResponse({"ok": True, **summary})

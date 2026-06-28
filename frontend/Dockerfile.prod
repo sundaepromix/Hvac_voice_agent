@@ -11,10 +11,18 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # NEXT_PUBLIC_* are inlined at build time, so they must be passed as ARGs.
+# (The repo-root .env loader in next.config.mjs can't see the root .env inside
+# this build context, so these must come through as build args.)
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_ADMIN_URL
+ARG NEXT_PUBLIC_BOOKING_URL
+ARG NEXT_PUBLIC_VAPI_PUBLIC_KEY
+ARG NEXT_PUBLIC_VAPI_ASSISTANT_ID
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_ADMIN_URL=$NEXT_PUBLIC_ADMIN_URL
+ENV NEXT_PUBLIC_BOOKING_URL=$NEXT_PUBLIC_BOOKING_URL
+ENV NEXT_PUBLIC_VAPI_PUBLIC_KEY=$NEXT_PUBLIC_VAPI_PUBLIC_KEY
+ENV NEXT_PUBLIC_VAPI_ASSISTANT_ID=$NEXT_PUBLIC_VAPI_ASSISTANT_ID
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

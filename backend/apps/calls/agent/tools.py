@@ -1,4 +1,4 @@
-"""Anthropic tool schema for Mary's home-service receptionist."""
+"""Anthropic tool schema for WorkflowAuth's AI Voice Assist (any industry)."""
 
 from apps.core.trades import TRADE_KEYS
 

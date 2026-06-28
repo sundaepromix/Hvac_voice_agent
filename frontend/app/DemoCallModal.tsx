@@ -4,34 +4,37 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { Anna } from "./Anna";
+import { AgentAvatar } from "./AgentAvatar";
+import MaryLiveCall from "./MaryLiveCall";
 import { useI18n } from "./lib/i18n";
+import { BOOKING_URL } from "./lib/site";
 
 type Phase = "ringing" | "live" | "ended";
 
 type Bubble = { role: "in" | "out"; text: string };
 
 const SCRIPT_KEYS: Array<{ role: "in" | "out"; key: string; afterMs: number }> = [
-  { role: "out", key: "annaModal.line1", afterMs: 600 },
-  { role: "in",  key: "annaModal.line2", afterMs: 2600 },
-  { role: "out", key: "annaModal.line3", afterMs: 4800 },
-  { role: "in",  key: "annaModal.line4", afterMs: 7000 },
-  { role: "out", key: "annaModal.line5", afterMs: 9000 },
+  { role: "out", key: "maryModal.line1", afterMs: 600 },
+  { role: "in",  key: "maryModal.line2", afterMs: 2600 },
+  { role: "out", key: "maryModal.line3", afterMs: 4800 },
+  { role: "in",  key: "maryModal.line4", afterMs: 7000 },
+  { role: "out", key: "maryModal.line5", afterMs: 9000 },
 ];
 
-const DEMO_URL = process.env.NEXT_PUBLIC_BOOKING_URL || "/contact";
+const DEMO_URL = BOOKING_URL;
 
 type Props = {
   open: boolean;
   onClose: () => void;
 };
 
-export default function AnnaDemoModal({ open, onClose }: Props) {
+export default function DemoCallModal({ open, onClose }: Props) {
   const { t } = useI18n();
   const [phase, setPhase] = useState<Phase>("ringing");
   const [seconds, setSeconds] = useState(0);
   const [bubbles, setBubbles] = useState<Bubble[]>([]);
   const [typingFor, setTypingFor] = useState<"in" | "out" | null>(null);
+  const [live, setLive] = useState(false);
   const [mounted, setMounted] = useState(false);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -44,6 +47,7 @@ export default function AnnaDemoModal({ open, onClose }: Props) {
     setSeconds(0);
     setBubbles([]);
     setTypingFor(null);
+    setLive(false);
 
     const ringTimer = setTimeout(() => {
       setPhase("live");
@@ -98,7 +102,7 @@ export default function AnnaDemoModal({ open, onClose }: Props) {
 
   return createPortal(
     <div
-      className="anna-modal-backdrop"
+      className="mary-modal-backdrop"
       role="dialog"
       aria-modal="true"
       aria-label="Mary live demo"
@@ -106,10 +110,10 @@ export default function AnnaDemoModal({ open, onClose }: Props) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="anna-modal" ref={dialogRef}>
+      <div className="mary-modal" ref={dialogRef}>
         <button
           ref={closeBtnRef}
-          className="anna-modal-close"
+          className="mary-modal-close"
           aria-label="Close demo"
           onClick={onClose}
           type="button"
@@ -120,78 +124,83 @@ export default function AnnaDemoModal({ open, onClose }: Props) {
           </svg>
         </button>
 
-        <div className="anna-modal-head">
-          <span className="anna-modal-eyebrow">
-            <span className="dot-pulse" aria-hidden /> {t("annaModal.eyebrow")}
+        <div className="mary-modal-head">
+          <span className="mary-modal-eyebrow">
+            <span className="dot-pulse" aria-hidden /> {t("maryModal.eyebrow")}
           </span>
-          <h3 className="anna-modal-title">{t("annaModal.title")}</h3>
+          <h3 className="mary-modal-title">{t("maryModal.title")}</h3>
         </div>
 
-        <div className="anna-modal-stage">
+        {live ? (
+          <div className="mary-modal-live">
+            <MaryLiveCall onClose={onClose} />
+          </div>
+        ) : (
+        <div className="mary-modal-stage">
           {/* Phone card */}
-          <div className={`anna-phone phase-${phase}`}>
-            <div className="anna-phone-glow" aria-hidden />
-            <div className="anna-phone-avatar">
+          <div className={`mary-phone phase-${phase}`}>
+            <div className="mary-phone-glow" aria-hidden />
+            <div className="mary-phone-avatar">
               {phase === "ringing" && (
                 <>
                   <span className="phone-avatar-ring" />
                   <span className="phone-avatar-ring delay" />
                 </>
               )}
-              <Anna size={56} />
+              <AgentAvatar size={56} />
             </div>
-            <div className="anna-phone-name">Mary · Workflow Auth</div>
-            <div className="anna-phone-status">
-              {phase === "ringing" && t("annaModal.statusRinging")}
+            <div className="mary-phone-name">Mary · WorkflowAuth</div>
+            <div className="mary-phone-status">
+              {phase === "ringing" && t("maryModal.statusRinging")}
               {phase === "live" && (
                 <>
-                  <span className="dot-pulse" aria-hidden /> {t("annaModal.statusConnected")} · {mm}:{ss}
+                  <span className="dot-pulse" aria-hidden /> {t("maryModal.statusConnected")} · {mm}:{ss}
                 </>
               )}
-              {phase === "ended" && t("annaModal.statusEnded")}
+              {phase === "ended" && t("maryModal.statusEnded")}
             </div>
           </div>
 
           {/* Transcript feed */}
-          <div className="anna-feed" aria-live="polite">
+          <div className="mary-feed" aria-live="polite">
             {phase === "ringing" && (
-              <div className="anna-feed-empty">
-                <span className="anna-feed-empty-dots"><i /><i /><i /></span>
-                <span>{t("annaModal.dialing")}</span>
+              <div className="mary-feed-empty">
+                <span className="mary-feed-empty-dots"><i /><i /><i /></span>
+                <span>{t("maryModal.dialing")}</span>
               </div>
             )}
             {phase !== "ringing" && (
               <>
                 {bubbles.map((b, i) => (
-                  <div key={i} className={`anna-feed-bubble ${b.role}`}>
-                    <span className="anna-feed-avatar">
+                  <div key={i} className={`mary-feed-bubble ${b.role}`}>
+                    <span className="mary-feed-avatar">
                       {b.role === "out" ? "A" : (
                         <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-7 8-7s8 3 8 7" /></svg>
                       )}
                     </span>
-                    <span className="anna-feed-text">{b.text}</span>
+                    <span className="mary-feed-text">{b.text}</span>
                   </div>
                 ))}
                 {typingFor && phase === "live" && (
-                  <div className={`anna-feed-bubble ${typingFor} typing`}>
-                    <span className="anna-feed-avatar">
+                  <div className={`mary-feed-bubble ${typingFor} typing`}>
+                    <span className="mary-feed-avatar">
                       {typingFor === "out" ? "A" : (
                         <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-7 8-7s8 3 8 7" /></svg>
                       )}
                     </span>
-                    <span className="anna-feed-text">
+                    <span className="mary-feed-text">
                       <span className="typing-dots"><i /><i /><i /></span>
                     </span>
                   </div>
                 )}
                 {phase === "ended" && (
-                  <div className="anna-feed-summary">
-                    <div className="anna-feed-summary-title">{t("annaModal.summaryTitle")}</div>
+                  <div className="mary-feed-summary">
+                    <div className="mary-feed-summary-title">{t("maryModal.summaryTitle")}</div>
                     <ul>
-                      <li>{t("annaModal.summary1")}</li>
-                      <li>{t("annaModal.summary2")}</li>
-                      <li>{t("annaModal.summary3")}</li>
-                      <li>{t("annaModal.summary4")}</li>
+                      <li>{t("maryModal.summary1")}</li>
+                      <li>{t("maryModal.summary2")}</li>
+                      <li>{t("maryModal.summary3")}</li>
+                      <li>{t("maryModal.summary4")}</li>
                     </ul>
                   </div>
                 )}
@@ -199,16 +208,38 @@ export default function AnnaDemoModal({ open, onClose }: Props) {
             )}
           </div>
         </div>
+        )}
 
-        <div className="anna-modal-foot">
-          <p className="anna-modal-foot-note">{t("annaModal.foot")}</p>
-          <div className="anna-modal-actions">
+        <div className="mary-modal-foot">
+          {!live && (
+            <button
+              type="button"
+              className="mary-live-cta"
+              onClick={() => setLive(true)}
+            >
+              <span className="mary-live-cta-icon" aria-hidden>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+                  <path d="M19 10a7 7 0 0 1-14 0M12 17v4" />
+                </svg>
+              </span>
+              {t("maryModal.talkLive")}
+            </button>
+          )}
+          <p className="mary-modal-foot-note">{t("maryModal.foot")}</p>
+          <div className="mary-modal-actions">
             <a href={DEMO_URL} target="_blank" rel="noreferrer" className="btn btn-primary">
-              {t("annaModal.bookReal")}
+              {t("maryModal.bookReal")}
             </a>
-            <Link href="/dashboard/test-call" className="btn btn-ghost" onClick={onClose}>
-              {t("annaModal.openSim")} →
-            </Link>
+            {live ? (
+              <button type="button" className="btn btn-ghost" onClick={() => setLive(false)}>
+                ← {t("maryModal.backToDemo")}
+              </button>
+            ) : (
+              <Link href="/dashboard/test-call" className="btn btn-ghost" onClick={onClose}>
+                {t("maryModal.openSim")} →
+              </Link>
+            )}
           </div>
         </div>
       </div>

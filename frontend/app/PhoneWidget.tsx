@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { Anna } from "./Anna";
+import { AgentAvatar } from "./AgentAvatar";
 import { useI18n } from "./lib/i18n";
 
 const TRANSCRIPT: Array<{ role: "in" | "out"; key: string; afterMs: number }> = [
@@ -54,8 +54,8 @@ export default function PhoneWidget() {
         </div>
         <div className="phone-title">{t("phoneWidget.incoming")}</div>
         <div className="phone-num">+1 (415) 555-0142</div>
-        <div className="phone-anna">
-          <Anna />
+        <div className="phone-mary">
+          <AgentAvatar />
           <span>{t("phoneWidget.frontDesk")}</span>
         </div>
         <div className="phone-call-actions">

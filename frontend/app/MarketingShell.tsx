@@ -6,16 +6,18 @@ import { useEffect, useState } from "react";
 import LanguageSwitcher from "./LanguageSwitcher";
 import ThemeToggle from "./ThemeToggle";
 import { useI18n } from "./lib/i18n";
+import { BOOKING_URL } from "./lib/site";
 
-const DEMO_URL = process.env.NEXT_PUBLIC_BOOKING_URL || "/contact";
+const DEMO_URL = BOOKING_URL;
 
 export type NavLink = { href: string; label: string };
 
 function defaultLinks(t: (k: string) => string): NavLink[] {
   return [
-    { href: "/#story", label: t("nav.how") },
-    { href: "/#features", label: t("nav.features") },
+    { href: "/#how", label: t("nav.how") },
+    { href: "/#deploy", label: t("nav.deploy") },
     { href: "/#industries", label: t("nav.industries") },
+    { href: "/#why", label: t("nav.why") },
   ];
 }
 

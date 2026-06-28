@@ -59,7 +59,7 @@ export default function TermsPage() {
 
             <h2>4. Customer data</h2>
             <p>
-              You retain all rights to the data your customers send to you through Workflow Auth.
+              You retain all rights to the data your customers send to you through WorkflowAuth.
               We process that data on your behalf as your data processor under our{" "}
               <a href="/privacy">Privacy Policy</a> and any applicable Data Processing
               Agreement. You can export or delete your data at any time.
@@ -75,7 +75,7 @@ export default function TermsPage() {
             <h2>6. AI output</h2>
             <p>
               Mary drafts quotes, books appointments, and answers questions based on your
-              configured pricing rules and knowledge base. AI output can occasionally be
+              configured rules and knowledge base. AI output can occasionally be
               wrong. You're responsible for reviewing material decisions (large quotes,
               irreversible bookings) before they go to customers, and you can configure
               human-in-the-loop thresholds in your dashboard.

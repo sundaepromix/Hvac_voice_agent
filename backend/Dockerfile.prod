@@ -20,11 +20,15 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-# Run migrations + collectstatic + start gunicorn (Railway sets $PORT)
+# Run migrations + collectstatic + start gunicorn (Railway sets $PORT).
+# gthread workers + threads let a worker keep serving other turns while one is
+# waiting on OpenAI, and stream the custom-LLM SSE response without blocking the
+# whole worker — important for smooth concurrent voice calls.
 EXPOSE 8000
 CMD sh -c "python manage.py migrate --noinput && \
            python manage.py collectstatic --noinput && \
            gunicorn dropline.wsgi:application \
              --bind 0.0.0.0:${PORT:-8000} \
-             --workers 3 --timeout 120 \
+             --worker-class gthread --workers ${GUNICORN_WORKERS:-3} --threads ${GUNICORN_THREADS:-8} \
+             --timeout 120 --graceful-timeout 30 \
              --access-logfile - --error-logfile -"

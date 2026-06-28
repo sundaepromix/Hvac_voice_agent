@@ -22,11 +22,13 @@ const ICONS: Record<Kind, { color: string; symbol: string }> = {
 };
 
 // Deterministic baseline so the counter "feels alive" without random hydration drift.
+// Lands in a believable 20–40 range across the day (not an exaggerated number).
+const COUNT_CAP = 44;
 function baselineCount() {
   const start = new Date();
   start.setUTCHours(0, 0, 0, 0);
   const minutesSinceMidnight = Math.floor((Date.now() - start.getTime()) / 60000);
-  return 247 + Math.floor(minutesSinceMidnight * 0.3);
+  return Math.min(COUNT_CAP, 21 + Math.floor(minutesSinceMidnight * 0.012));
 }
 
 export default function LiveTicker() {
@@ -36,11 +38,11 @@ export default function LiveTicker() {
     text: t(`ticker.i${i + 1}`),
   }));
   const loop = [...items, ...items];
-  const [counter, setCounter] = useState(247);
+  const [counter, setCounter] = useState(28);
 
   useEffect(() => {
     setCounter(baselineCount());
-    const id = setInterval(() => setCounter((c) => c + 1), 3700);
+    const id = setInterval(() => setCounter((c) => Math.min(COUNT_CAP, c + 1)), 90000);
     return () => clearInterval(id);
   }, []);
 

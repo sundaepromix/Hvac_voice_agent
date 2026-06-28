@@ -10,7 +10,7 @@ from .trades import TRADES
 
 
 class Business(models.Model):
-    """A home-services business using Workflow Auth."""
+    """A business using WorkflowAuth (any industry)."""
 
     TRADE_CHOICES = TRADES
 
@@ -19,71 +19,10 @@ class Business(models.Model):
         ("openai", "OpenAI GPT"),
     ]
 
-    # ISO-4217 codes for every currency Mary may need to speak. The dashboard
-    # formats with Intl.NumberFormat using the matching locale; the spoken
-    # guide for big-number conventions lives in apps/calls/agent/prompts.py.
+    # Prices are quoted in US dollars. The dashboard formats with
+    # Intl.NumberFormat; the spoken number guide lives in apps/calls/agent/prompts.py.
     CURRENCY_CHOICES = [
         ("USD", "US Dollar ($)"),
-        ("EUR", "Euro (€)"),
-        ("GBP", "British Pound (£)"),
-        ("CAD", "Canadian Dollar (C$)"),
-        ("AUD", "Australian Dollar (A$)"),
-        ("NZD", "New Zealand Dollar (NZ$)"),
-        ("CHF", "Swiss Franc (CHF)"),
-        ("SEK", "Swedish Krona (kr)"),
-        ("NOK", "Norwegian Krone (kr)"),
-        ("DKK", "Danish Krone (kr)"),
-        ("PLN", "Polish Zloty (zł)"),
-        ("CZK", "Czech Koruna (Kč)"),
-        ("HUF", "Hungarian Forint (Ft)"),
-        ("RON", "Romanian Leu (lei)"),
-        ("TRY", "Turkish Lira (₺)"),
-        ("RUB", "Russian Ruble (₽)"),
-        ("UAH", "Ukrainian Hryvnia (₴)"),
-        ("ILS", "Israeli Shekel (₪)"),
-        ("AED", "UAE Dirham (د.إ)"),
-        ("SAR", "Saudi Riyal (﷼)"),
-        ("QAR", "Qatari Riyal (﷼)"),
-        ("KWD", "Kuwaiti Dinar (د.ك)"),
-        ("BHD", "Bahraini Dinar (.د.ب)"),
-        ("OMR", "Omani Rial (﷼)"),
-        ("JOD", "Jordanian Dinar (د.ا)"),
-        ("EGP", "Egyptian Pound (£)"),
-        ("LBP", "Lebanese Pound (ل.ل)"),
-        ("MAD", "Moroccan Dirham (د.م.)"),
-        ("DZD", "Algerian Dinar (د.ج)"),
-        ("TND", "Tunisian Dinar (د.ت)"),
-        ("ZAR", "South African Rand (R)"),
-        ("NGN", "Nigerian Naira (₦)"),
-        ("KES", "Kenyan Shilling (KSh)"),
-        ("GHS", "Ghanaian Cedi (₵)"),
-        ("ETB", "Ethiopian Birr (Br)"),
-        ("UGX", "Ugandan Shilling (USh)"),
-        ("TZS", "Tanzanian Shilling (TSh)"),
-        ("PKR", "Pakistani Rupee (Rs)"),
-        ("INR", "Indian Rupee (₹)"),
-        ("BDT", "Bangladeshi Taka (৳)"),
-        ("LKR", "Sri Lankan Rupee (Rs)"),
-        ("NPR", "Nepalese Rupee (Rs)"),
-        ("AFN", "Afghan Afghani (؋)"),
-        ("CNY", "Chinese Yuan (¥)"),
-        ("HKD", "Hong Kong Dollar (HK$)"),
-        ("TWD", "Taiwan Dollar (NT$)"),
-        ("JPY", "Japanese Yen (¥)"),
-        ("KRW", "South Korean Won (₩)"),
-        ("SGD", "Singapore Dollar (S$)"),
-        ("MYR", "Malaysian Ringgit (RM)"),
-        ("IDR", "Indonesian Rupiah (Rp)"),
-        ("PHP", "Philippine Peso (₱)"),
-        ("THB", "Thai Baht (฿)"),
-        ("VND", "Vietnamese Dong (₫)"),
-        ("MXN", "Mexican Peso ($)"),
-        ("BRL", "Brazilian Real (R$)"),
-        ("ARS", "Argentine Peso ($)"),
-        ("CLP", "Chilean Peso ($)"),
-        ("COP", "Colombian Peso ($)"),
-        ("PEN", "Peruvian Sol (S/.)"),
-        ("UYU", "Uruguayan Peso ($)"),
     ]
 
     name = models.CharField(max_length=200)
@@ -92,12 +31,12 @@ class Business(models.Model):
     timezone = models.CharField(max_length=64, default="UTC")
     currency = models.CharField(
         max_length=3, choices=CURRENCY_CHOICES, default="USD",
-        help_text="ISO-4217 code Mary quotes prices in and the dashboard formats with.",
+        help_text="Prices are quoted in US dollars.",
     )
     phone_number = models.CharField(max_length=32, blank=True, help_text="Public business line")
     voice_persona = models.CharField(
         max_length=64, default="Mary",
-        help_text="Display name for the AI receptionist"
+        help_text="Display name for the AI agent (configurable per business)"
     )
     knowledge_base = models.TextField(
         blank=True,
@@ -108,7 +47,7 @@ class Business(models.Model):
         max_length=16,
         choices=LLM_PROVIDER_CHOICES,
         default="openai",
-        help_text="Which LLM powers Mary and lead extraction.",
+        help_text="Which LLM powers the Voice Assist and lead extraction.",
     )
 
     # Provider credentials. When set, override the global env-var defaults.
@@ -129,6 +68,29 @@ class Business(models.Model):
     whatsapp_access_token = EncryptedCharField(blank=True, default="")
     whatsapp_phone_number_id = models.CharField(max_length=64, blank=True, default="")
     whatsapp_verify_token = EncryptedCharField(blank=True, default="")
+
+    # ---- Outbound calling config (speed-to-lead, follow-ups, reactivation, reminders) ----
+    outbound_enabled = models.BooleanField(
+        default=True, help_text="Master switch for all outbound calling."
+    )
+    speed_to_lead_enabled = models.BooleanField(
+        default=True, help_text="Auto-call brand-new non-voice leads within a minute of arrival."
+    )
+    followup_delay_hours = models.PositiveSmallIntegerField(
+        default=24, help_text="Hours after a quote is drafted to place a follow-up call."
+    )
+    reactivation_days = models.PositiveSmallIntegerField(
+        default=30, help_text="A lead becomes eligible for reactivation once it's been cold this many days."
+    )
+    quiet_hours_start = models.PositiveSmallIntegerField(
+        default=21, help_text="No outbound calls at or after this hour (0-23, business timezone)."
+    )
+    quiet_hours_end = models.PositiveSmallIntegerField(
+        default=8, help_text="No outbound calls before this hour (0-23, business timezone)."
+    )
+    do_not_call = models.TextField(
+        blank=True, default="", help_text="Phone numbers to never call, one per line."
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

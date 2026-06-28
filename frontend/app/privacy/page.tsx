@@ -42,7 +42,7 @@ export default function PrivacyPage() {
               <li>
                 <strong>Customer interactions.</strong> Call audio, transcripts, SMS / chat
                 messages, and any structured data Mary extracts
-                (name, phone, address, project description, estimated value).
+                (name, phone, the fields you configure, estimated value).
               </li>
               <li>
                 <strong>Usage data.</strong> Anonymous logs of how you use the dashboard

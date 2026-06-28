@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 export const runtime = "nodejs";
-export const alt = "Workflow Auth — The 24/7 AI front desk for home services";
+export const alt = "WorkflowAuth — AI voice agent for inbound + outbound calls";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -45,9 +45,9 @@ export default async function OpengraphImage() {
               fontWeight: 700,
             }}
           >
-            H
+            W
           </div>
-          <span style={{ fontWeight: 600 }}>Workflow Auth</span>
+          <span style={{ fontWeight: 600 }}>WorkflowAuth</span>
         </div>
 
         <div
@@ -69,7 +69,7 @@ export default async function OpengraphImage() {
               flexWrap: "wrap",
             }}
           >
-            The 24/7 AI front desk for home services.
+            Answer every call. Chase every lead.
           </div>
           <div
             style={{
@@ -80,7 +80,7 @@ export default async function OpengraphImage() {
               fontFamily: "sans-serif",
             }}
           >
-            Mary answers, qualifies, and books — so your crew sleeps and your calendar fills itself.
+            Speed-to-lead, follow-ups, and reactivation — around the clock, for any business on the phone.
           </div>
           <div
             style={{

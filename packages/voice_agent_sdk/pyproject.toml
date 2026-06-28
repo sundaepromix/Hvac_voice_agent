@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voice-agent-sdk"
+version = "0.2.0"
+description = "Provider-agnostic agentic voice-receptionist toolkit extracted from Workflow Auth."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "the Workflow Auth team" }]
+dependencies = []
+
+# The SDK core has ZERO hard dependencies. Provider SDKs and integration
+# clients are optional and lazy-imported only when you actually use them.
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.39"]
+openai = ["openai>=1.40"]
+twilio = ["twilio>=9.0"]
+redis = ["redis>=5.0"]
+all = ["anthropic>=0.39", "openai>=1.40", "twilio>=9.0", "redis>=5.0"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "anthropic>=0.39", "openai>=1.40", "twilio>=9.0", "redis>=5.0"]
+
+[tool.setuptools.packages.find]
+include = ["voice_agent*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

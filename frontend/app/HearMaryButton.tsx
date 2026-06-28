@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const SAMPLE_SRC = "/anna-sample.mp3";
+const SAMPLE_SRC = "/mary-sample.mp3";
 const TRANSCRIPT =
-  "“Hi, this is Mary with ABC Solar Co. I can help you tonight — what’s going on at home?”";
+  "“Hi, this is Mary from WorkflowAuth. I can help you tonight — what do you need?”";
 
-export default function HearAnnaButton() {
+export default function HearMaryButton() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [available, setAvailable] = useState<boolean | null>(null);
@@ -36,9 +36,9 @@ export default function HearAnnaButton() {
   if (available === false) return null;
 
   return (
-    <div className="hear-anna">
-      <button type="button" className={`hear-anna-btn ${playing ? "is-playing" : ""}`} onClick={toggle} aria-label={playing ? "Pause sample" : "Play sample"}>
-        <span className="hear-anna-icon" aria-hidden>
+    <div className="hear-mary">
+      <button type="button" className={`hear-mary-btn ${playing ? "is-playing" : ""}`} onClick={toggle} aria-label={playing ? "Pause sample" : "Play sample"}>
+        <span className="hear-mary-icon" aria-hidden>
           {playing ? (
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
           ) : (
@@ -46,11 +46,11 @@ export default function HearAnnaButton() {
           )}
         </span>
         <span>Hear Mary · 15s sample</span>
-        <span className="hear-anna-progress" aria-hidden>
-          <span className="hear-anna-progress-bar" style={{ width: `${progress}%` }} />
+        <span className="hear-mary-progress" aria-hidden>
+          <span className="hear-mary-progress-bar" style={{ width: `${progress}%` }} />
         </span>
       </button>
-      <p className="hear-anna-transcript">{TRANSCRIPT}</p>
+      <p className="hear-mary-transcript">{TRANSCRIPT}</p>
       <audio
         ref={audioRef}
         src={SAMPLE_SRC}

@@ -11,7 +11,6 @@ const CATEGORIES: Array<"All" | FaqCategory> = [
   "Product",
   "Pricing",
   "Security",
-  "Open source",
 ];
 
 const CAT_KEYS: Record<"All" | FaqCategory, string> = {
@@ -20,7 +19,6 @@ const CAT_KEYS: Record<"All" | FaqCategory, string> = {
   Product: "faq.cat.product",
   Pricing: "faq.cat.pricing",
   Security: "faq.cat.security",
-  "Open source": "faq.cat.oss",
 };
 
 export default function FaqList({ items }: { items: FaqItem[] }) {

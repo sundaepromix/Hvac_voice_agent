@@ -1,12 +1,12 @@
-type AnnaProps = {
+type AgentAvatarProps = {
   size?: number;
   className?: string;
 };
 
-export function Anna({ size, className }: AnnaProps) {
+export function AgentAvatar({ size, className }: AgentAvatarProps) {
   const style = size ? { width: size, height: size } : undefined;
   return (
-    <span className={`anna-avatar ${className ?? ""}`} style={style} aria-hidden>
+    <span className={`mary-avatar ${className ?? ""}`} style={style} aria-hidden>
       <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
         <path d="M9 18c0-3.5 2.5-7 7-7s7 3.5 7 7" />
         <circle cx="16" cy="13" r="4.2" />

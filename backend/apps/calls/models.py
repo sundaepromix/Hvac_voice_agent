@@ -38,3 +38,54 @@ class Call(models.Model):
 
     def __str__(self) -> str:
         return f"Call {self.provider_call_id} ({self.status})"
+
+
+class OutboundTask(models.Model):
+    """A queued outbound call the agent should place.
+
+    Covers the four outbound use-cases — speed-to-lead, follow-up, reactivation,
+    and appointment reminder. The cron runner (run_outbound_queue) picks up due
+    rows, enforces quiet-hours / do-not-call guardrails, and places the call.
+    """
+
+    KIND_CHOICES = [
+        ("speed_to_lead", "Speed to Lead"),
+        ("follow_up", "Follow-up"),
+        ("reactivation", "Reactivation"),
+        ("reminder", "Appointment Reminder"),
+    ]
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("calling", "Calling"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+        ("skipped", "Skipped"),
+        ("cancelled", "Cancelled"),
+    ]
+
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="outbound_tasks")
+    lead = models.ForeignKey(
+        Lead, on_delete=models.SET_NULL, null=True, blank=True, related_name="outbound_tasks"
+    )
+    call = models.ForeignKey(
+        Call, on_delete=models.SET_NULL, null=True, blank=True, related_name="outbound_tasks"
+    )
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES)
+    to_number = models.CharField(max_length=32)
+    objective = models.TextField(blank=True, help_text="Extra context for the agent's opening line.")
+    campaign = models.CharField(max_length=120, blank=True)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default="pending", db_index=True)
+    scheduled_for = models.DateTimeField(db_index=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    max_attempts = models.PositiveSmallIntegerField(default=3)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["scheduled_for"]
+        indexes = [models.Index(fields=["business", "status", "scheduled_for"])]
+
+    def __str__(self) -> str:
+        return f"OutboundTask {self.kind} → {self.to_number} ({self.status})"

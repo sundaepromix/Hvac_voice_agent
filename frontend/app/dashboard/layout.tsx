@@ -25,8 +25,15 @@ async function fetchCount(path: string): Promise<number> {
   }
 }
 
+// In local dev we don't gate the dashboard behind login so the pages can be
+// browsed freely. Production (NODE_ENV=production) still requires a session.
+function devFallbackUser() {
+  if (process.env.NODE_ENV === "production") return null;
+  return { id: 0, username: "demo", email: "", first_name: "Demo", is_staff: true };
+}
+
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const user = await getCurrentUser();
+  const user = (await getCurrentUser()) ?? devFallbackUser();
   if (!user) redirect("/login?next=/dashboard");
 
   const [leads, calls, quotes, businesses, tickets, bizPage] = await Promise.all([

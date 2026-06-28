@@ -175,7 +175,7 @@ export default function ProfileForm({ business }: { business: Business }) {
           />
         </Field>
 
-        <Field label="AI persona" hint="Display name Mary uses on calls.">
+        <Field label="AI persona" hint="Display name the assistant uses on calls.">
           <input
             className="text-input"
             value={form.voice_persona}

@@ -57,7 +57,7 @@ def _openai_client(business=None):
 # 1. Transcript → structured lead
 # ---------------------------------------------------------------------------
 
-EXTRACTION_PROMPT = """You are the operations assistant for a home-services business.
+EXTRACTION_PROMPT = """You are the operations assistant for a business that handles customer calls.
 Read the call transcript and return a strict JSON object with these keys:
 
   customer_name      string (best guess, "" if unknown)

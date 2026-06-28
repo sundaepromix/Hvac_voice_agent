@@ -45,6 +45,11 @@ services:
       args:
         NEXT_PUBLIC_API_URL: https://${API_DOMAIN}/api
         NEXT_PUBLIC_ADMIN_URL: https://${API_DOMAIN}/admin/
+        # Baked into the client bundle at build time. Without these the live
+        # "Talk to Mary" widget shows "coming soon" and booking buttons fall back.
+        NEXT_PUBLIC_BOOKING_URL: ${NEXT_PUBLIC_BOOKING_URL}
+        NEXT_PUBLIC_VAPI_PUBLIC_KEY: ${NEXT_PUBLIC_VAPI_PUBLIC_KEY}
+        NEXT_PUBLIC_VAPI_ASSISTANT_ID: ${NEXT_PUBLIC_VAPI_ASSISTANT_ID}
     restart: unless-stopped
     environment:
       INTERNAL_API_URL: http://backend:8000/api

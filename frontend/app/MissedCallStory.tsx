@@ -178,12 +178,12 @@ function ScenePickup({ t }: { t: (k: string) => string }) {
   return (
     <div className="phone-call">
       <div className="phone-call-label">
-        <span className="scene-anna-dot" /> {t("story.scene.onLine")} · 00:08
+        <span className="scene-mary-dot" /> {t("story.scene.onLine")} · 00:08
       </div>
       <div className="phone-call-name">Mary</div>
-      <div className="phone-call-number">ABC Solar Co.</div>
+      <div className="phone-call-number">WorkflowAuth</div>
       <div className="phone-call-avatar">
-        <span>A</span>
+        <span>V</span>
       </div>
       <div className="scene-wave" aria-hidden>
         {Array.from({ length: 28 }).map((_, i) => (
@@ -200,10 +200,10 @@ function SceneSms({ t }: { t: (k: string) => string }) {
     <div className="phone-sms">
       <div className="phone-sms-header">
         <span className="phone-sms-back" aria-hidden>‹</span>
-        <span className="phone-sms-avatar">A</span>
+        <span className="phone-sms-avatar">V</span>
         <div className="phone-sms-titles">
           <strong>Mary</strong>
-          <span>ABC Solar Co.</span>
+          <span>WorkflowAuth</span>
         </div>
       </div>
       <div className="scene-sms-thread">

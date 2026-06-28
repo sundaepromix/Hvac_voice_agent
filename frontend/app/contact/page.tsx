@@ -7,11 +7,13 @@ import {
 } from "../lib/supportClient";
 import { useI18n } from "../lib/i18n";
 import { MarketingFooter, MarketingTopbar } from "../MarketingShell";
+import CalendlyInline from "../CalendlyInline";
+import { BOOKING_URL, BOOKING_IS_EXTERNAL, BOOKING_IS_CALENDLY } from "../lib/site";
 
 type Status = "idle" | "submitting" | "success" | "error";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
-const CALENDLY = process.env.NEXT_PUBLIC_BOOKING_URL || "/contact";
+const CALENDLY = BOOKING_URL;
 const SUPPORT_EMAIL = "promise@workflowauth.com";
 
 async function submitContactTicket(opts: {
@@ -90,6 +92,27 @@ export default function ContactPage() {
           </h1>
           <p className="hero-sub">{t("contact.heroSub")}</p>
         </section>
+
+        {BOOKING_IS_EXTERNAL && (
+          <section className="shell section-tight" id="book">
+            <div className="section-head">
+              <span className="section-flourish">{t("contact.book.eyebrow")}</span>
+              <h2 className="section-title">{t("contact.book.title")}</h2>
+              <p className="section-sub">{t("contact.book.sub")}</p>
+            </div>
+            {BOOKING_IS_CALENDLY ? (
+              <div className="calendly-shell">
+                <CalendlyInline url={CALENDLY} />
+              </div>
+            ) : (
+              <div className="book-cta">
+                <a href={CALENDLY} target="_blank" rel="noreferrer" className="btn btn-primary btn-lg">
+                  {t("contact.book.cta")} →
+                </a>
+              </div>
+            )}
+          </section>
+        )}
 
         <section className="shell section-tight">
           <div className="contact-grid">

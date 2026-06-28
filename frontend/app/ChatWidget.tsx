@@ -331,7 +331,7 @@ export default function ChatWidget() {
     setClosed(false);
     pushMessage({
       role: "system",
-      text: t("chat.live.backToAnna"),
+      text: t("chat.live.backToMary"),
       ts: Date.now(),
     });
   }
@@ -384,7 +384,7 @@ export default function ChatWidget() {
         <div className="chat-panel">
           <div className="chat-head">
             <div className="chat-head-left">
-              <span className="chat-avatar">{mode === "live" ? "H" : "A"}</span>
+              <span className="chat-avatar">{mode === "live" ? "H" : "V"}</span>
               <div>
                 <div className="chat-name">
                   {mode === "live" ? t("chat.live.support") : "Mary"} <span className="chat-online" />

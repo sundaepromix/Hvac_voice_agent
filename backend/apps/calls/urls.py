@@ -5,6 +5,12 @@ from . import views
 urlpatterns = [
     path("", views.CallList.as_view(), name="call-list"),
     path("bulk-delete/", views.bulk_delete_calls, name="call-bulk-delete"),
+    # Outbound calling (declared before <int:pk> so "outbound" isn't read as a pk).
+    path("outbound/", views.outbound_list, name="outbound-list"),
+    path("outbound/call-now/", views.outbound_call_now, name="outbound-call-now"),
+    path("outbound/reactivate/", views.outbound_reactivate, name="outbound-reactivate"),
+    path("outbound/cron/", views.outbound_cron, name="outbound-cron"),
+    path("outbound/cron/<str:secret>/", views.outbound_cron, name="outbound-cron-keyed"),
     path("<int:pk>/", views.CallDetail.as_view(), name="call-detail"),
     path("webhooks/vapi/", views.VapiWebhook.as_view(), name="vapi-webhook"),
     path("webhooks/twilio/", views.TwilioWebhook.as_view(), name="twilio-webhook"),
