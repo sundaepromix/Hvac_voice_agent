@@ -101,14 +101,20 @@ export default function MaryLiveCall({ onClose }: { onClose?: () => void }) {
     connectedRef.current = false;
     setStatus("connecting");
 
-    // Ask for the mic up front so a blocked permission shows a clear message
-    // instead of the SDK hanging on "connecting".
+    // Surface an already-blocked mic WITHOUT grabbing the device. Acquiring the
+    // mic here and stopping the tracks (the old approach) left Vapi/Daily unable
+    // to publish the caller's audio → "assistant did not receive customer audio".
+    // Vapi acquires and owns the mic itself inside vapi.start().
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((tr) => tr.stop());
-    } catch (e) {
-      fail("mary.live.micError", e);
-      return;
+      const perm = await navigator.permissions?.query?.(
+        { name: "microphone" as PermissionName },
+      );
+      if (perm && perm.state === "denied") {
+        fail("mary.live.micError");
+        return;
+      }
+    } catch {
+      /* Permissions API unavailable — let Vapi prompt for the mic itself. */
     }
 
     try {
