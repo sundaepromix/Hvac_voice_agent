@@ -165,3 +165,124 @@ def run_openai_loop(
             if last_tool in ("book_appointment", "send_sms"):
                 return {"text": "You're all set! Anything else I can help with?", "end_call": True}
             return {"text": "", "end_call": True}
+
+
+def run_openai_loop_streaming(
+    client,
+    *,
+    system_prompt: str,
+    tools: list[dict],
+    conversation_history: list[dict],
+    execute_tool,
+    out: dict[str, Any],
+):
+    """Streaming twin of run_openai_loop. A generator that yields assistant text
+    deltas (str) as the model produces them, so Vapi can start speaking within a
+    few hundred ms instead of after the full turn.
+
+    Tool turns are resolved silently (no yield). When the model returns plain
+    text it streams live. After the generator is exhausted, `out` holds
+    {"text": <full spoken text>, "should_end": <bool>} for the caller to persist
+    and apply the hangup-deferral.
+    """
+    oa_tools = _tools_for_openai(tools)
+    oa_messages = [{"role": "system", "content": system_prompt}, *_claude_to_openai(conversation_history)]
+
+    should_end = False
+    last_tool: str | None = None
+    spoken: list[str] = []
+
+    while True:
+        stream = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            max_tokens=400,
+            temperature=0.5,
+            tools=oa_tools,
+            messages=oa_messages,
+            stream=True,
+        )
+
+        tool_acc: dict[int, dict] = {}
+        assistant_text: list[str] = []
+        for chunk in stream:
+            if not getattr(chunk, "choices", None):
+                continue
+            delta = chunk.choices[0].delta
+            tcs = getattr(delta, "tool_calls", None)
+            if tcs:
+                for tcd in tcs:
+                    acc = tool_acc.setdefault(tcd.index, {"id": None, "name": "", "arguments": ""})
+                    if tcd.id:
+                        acc["id"] = tcd.id
+                    fn = getattr(tcd, "function", None)
+                    if fn:
+                        if fn.name:
+                            acc["name"] += fn.name
+                        if fn.arguments:
+                            acc["arguments"] += fn.arguments
+            content = getattr(delta, "content", None)
+            if content:
+                # The model commits to tool_calls XOR content early in the stream.
+                # If no tool call has appeared, this is a plain text turn → stream
+                # it live. Otherwise buffer it onto the assistant tool-call message.
+                if not tool_acc:
+                    spoken.append(content)
+                    yield content
+                else:
+                    assistant_text.append(content)
+
+        if not tool_acc:
+            break  # plain text turn complete
+
+        oa_messages.append({
+            "role": "assistant",
+            "content": "".join(assistant_text) or None,
+            "tool_calls": [
+                {"id": a["id"], "type": "function",
+                 "function": {"name": a["name"], "arguments": a["arguments"]}}
+                for a in tool_acc.values()
+            ],
+        })
+
+        for a in tool_acc.values():
+            name = a["name"]
+            try:
+                tool_input = json.loads(a["arguments"] or "{}")
+            except json.JSONDecodeError:
+                logger.warning("[TOOL JSON ERROR] %s args=%r", name, a["arguments"])
+                tool_input = {}
+
+            if name == "end_call":
+                logger.info("[END_CALL] reason=%s", tool_input.get("reason", "unknown"))
+                should_end = True
+                oa_messages.append({"role": "tool", "tool_call_id": a["id"], "content": "{}"})
+                continue
+
+            last_tool = name
+            logger.info("[TOOL] %s %s", name, json.dumps(tool_input))
+            try:
+                result = execute_tool(name, tool_input)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("[TOOL ERROR] %s: %s", name, exc)
+                result = {"error": str(exc)}
+            logger.info("[RESULT] %s", json.dumps(result, default=str))
+            oa_messages.append({
+                "role": "tool",
+                "tool_call_id": a["id"],
+                "content": json.dumps(result, default=str),
+            })
+
+        if should_end:
+            # Always speak a graceful closing so the streamed turn never goes
+            # silent, then defer the hard hangup (the caller marks it deferred and
+            # the next turn fires it via the blocking path with the header set).
+            closing = ("You're all set! Anything else I can help with?"
+                       if last_tool in ("book_appointment", "send_sms")
+                       else "Thanks for calling — have a great day!")
+            spoken.append(closing)
+            yield closing
+            break
+        # otherwise loop: the next streaming call produces the post-tool reply
+
+    out["should_end"] = should_end
+    out["text"] = "".join(spoken)

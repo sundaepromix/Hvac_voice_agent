@@ -22,7 +22,7 @@ from rest_framework.views import APIView
 
 from django.utils import timezone as dj_timezone
 
-from apps.calls.agent.receptionist import handle_conversation_turn
+from apps.calls.agent.receptionist import handle_conversation_turn, stream_conversation_turn
 from apps.core.models import Business
 from apps.leads.models import Lead
 
@@ -196,6 +196,20 @@ def chat_completions(request, secret: str = ""):
     if not claude_messages:
         return JsonResponse({"ok": True, "ignored": "no convertible messages"})
 
+    # Streaming path (Vapi sends stream:true on live calls) — token-by-token so
+    # the caller hears Mary within a few hundred ms instead of after the full turn.
+    if data.get("stream"):
+        try:
+            mode, *rest = stream_conversation_turn(
+                claude_messages, caller_phone=caller_phone, call_id=call_id)
+        except Exception as exc:  # noqa: BLE001 — Vapi must always get a 200 + spoken text
+            logger.error("[CUSTOM LLM STREAM ERROR] %s", exc)
+            return _stream("I'm sorry, I'm having a technical issue. Please call back in a moment.", False)
+        if mode == "tokens":
+            return _stream_tokens(rest[0])
+        return _stream(rest[0], rest[1])
+
+    # Non-streaming path — single JSON completion.
     try:
         result = handle_conversation_turn(claude_messages, caller_phone=caller_phone, call_id=call_id)
         text = result["text"]
@@ -204,9 +218,6 @@ def chat_completions(request, secret: str = ""):
         logger.error("[CUSTOM LLM ERROR] %s", exc)
         text = "I'm sorry, I'm having a technical issue. Please call back in a moment."
         end_call = False
-
-    if data.get("stream"):
-        return _stream(text, end_call)
 
     return JsonResponse({
         "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
@@ -263,6 +274,43 @@ def _stream(text: str, end_call: bool):
     if end_call:
         resp["X-Vapi-End-Call"] = "true"
     return resp
+
+
+def _stream_tokens(token_gen):
+    """Stream live assistant text deltas (from the OpenAI streaming loop) to Vapi
+    as OpenAI-compatible SSE chunks. No hangup header — the streaming path is
+    never the real-hangup turn (that's routed to _stream with the header)."""
+    completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    created = int(time.time())
+
+    def stream():
+        first = True
+        for piece in token_gen:
+            if not piece:
+                continue
+            delta: dict = {"content": piece}
+            if first:
+                delta["role"] = "assistant"
+                first = False
+            chunk = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": "dropline-openai",
+                "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(chunk)}\n\n"
+        stop = {
+            "id": completion_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": "dropline-openai",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+        }
+        yield f"data: {json.dumps(stop)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingHttpResponse(stream(), content_type="text/event-stream")
 
 
 @method_decorator(csrf_exempt, name="dispatch")

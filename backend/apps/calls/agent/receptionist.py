@@ -272,9 +272,12 @@ def _user_turn_count(history: list) -> int:
     )
 
 
-def handle_conversation_turn(conversation_history: list, caller_phone: str | None = None,
-                              call_id: str | None = None) -> dict[str, Any]:
-    """Run the agentic loop for one Vapi turn. Returns {text, end_call}."""
+def _prepare_turn(conversation_history: list, caller_phone: str | None, call_id: str | None):
+    """Shared per-turn setup: resolve the business and build the system prompt.
+
+    Returns (business, system_prompt, persona). Used by both the blocking
+    `handle_conversation_turn` and the streaming `stream_conversation_turn`.
+    """
     _log_transcript(conversation_history, caller_phone, call_id)
 
     if not (caller_phone or "").strip() and _user_turn_count(conversation_history) >= 2:
@@ -318,6 +321,14 @@ def handle_conversation_turn(conversation_history: list, caller_phone: str | Non
             "quote and draft_quote is NOT in the list above, call draft_quote "
             "now — don't just say you will)."
         )
+
+    return biz, system_prompt, persona
+
+
+def handle_conversation_turn(conversation_history: list, caller_phone: str | None = None,
+                              call_id: str | None = None) -> dict[str, Any]:
+    """Run the agentic loop for one Vapi turn. Returns {text, end_call}."""
+    biz, system_prompt, persona = _prepare_turn(conversation_history, caller_phone, call_id)
 
     provider = (getattr(biz, "llm_provider", "") or "anthropic").lower()
 
@@ -483,3 +494,78 @@ def handle_conversation_turn(conversation_history: list, caller_phone: str | Non
                 response_text[:300], " [HANGUP]" if should_end else "")
     _persist_turn(conversation_history, caller_phone, call_id, response_text)
     return {"text": response_text, "end_call": should_end}
+
+
+def stream_conversation_turn(conversation_history: list, caller_phone: str | None = None,
+                             call_id: str | None = None):
+    """Streaming variant for Vapi's custom-LLM `stream: true` requests.
+
+    Returns one of:
+      ("blocking", text, end_call)  — caller should stream a complete string and
+                                      set the X-Vapi-End-Call header (used for the
+                                      real-hangup turn, non-OpenAI, or missing key).
+      ("tokens", generator)         — generator yields assistant text deltas live;
+                                      persistence + the (deferred) end_call are
+                                      handled when it's exhausted. No hangup header.
+
+    Why the split: the X-Vapi-End-Call header must be set before the response
+    body streams, but with token streaming we only learn end_call mid-flight. The
+    *first* end_call is always deferred (so Vapi can speak the closing line), and
+    that turn needs no header. The *real* hangup turn is detectable up front via
+    `_end_call_already_deferred`, so we route just that turn to the blocking path.
+    """
+    from .openai_loop import run_openai_loop_streaming
+
+    # Real-hangup turn → blocking so the hangup header is set correctly. These
+    # turns carry only short fixed text, so there's no streaming latency to lose.
+    if _end_call_already_deferred(call_id):
+        r = handle_conversation_turn(conversation_history, caller_phone, call_id)
+        return ("blocking", r.get("text") or "", bool(r.get("end_call")))
+
+    biz, system_prompt, persona = _prepare_turn(conversation_history, caller_phone, call_id)
+    provider = (getattr(biz, "llm_provider", "") or "anthropic").lower()
+
+    # Only OpenAI streams token-by-token here; anything else uses the proven
+    # blocking path (chunked by the view).
+    if provider != "openai":
+        r = handle_conversation_turn(conversation_history, caller_phone, call_id)
+        return ("blocking", r.get("text") or "", bool(r.get("end_call")))
+
+    oai = _openai_client(biz)
+    if not oai:
+        return ("blocking",
+                f"{persona} here. I'd love to help, but my AI brain isn't connected right now. Please call back in a moment.",
+                False)
+
+    def dispatch(name: str, tool_input: dict) -> dict:
+        return execute_tool(name, tool_input, caller_phone=caller_phone, call_id=call_id, business=biz)
+
+    out: dict[str, Any] = {}
+
+    def gen():
+        try:
+            yield from run_openai_loop_streaming(
+                oai,
+                system_prompt=system_prompt,
+                tools=TOOLS,
+                conversation_history=conversation_history,
+                execute_tool=dispatch,
+                out=out,
+            )
+        except Exception as exc:  # noqa: BLE001 — never drop the live call; speak a recovery line
+            logger.error("[STREAM ERROR] call_id=%s: %s", call_id, exc)
+            if not out.get("text"):
+                fallback = "Sorry, I didn't catch that — could you say it again?"
+                out["text"] = fallback
+                yield fallback
+        # Post-stream bookkeeping (runs after all tokens are flushed).
+        text = out.get("text") or ""
+        if out.get("should_end"):
+            # First end_call → defer; the next turn (already-deferred) fires for
+            # real via the blocking path above with the proper hangup header.
+            _mark_end_call_deferred(call_id)
+            logger.info("[END_CALL DEFERRED · stream] closing line spoken, hangup next turn")
+        logger.info("[CALL %s · %s] MARY(stream): %s", call_id or "?", caller_phone or "?", text[:300])
+        _persist_turn(conversation_history, caller_phone, call_id, text)
+
+    return ("tokens", gen())
