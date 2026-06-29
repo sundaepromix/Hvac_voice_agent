@@ -120,6 +120,13 @@ if _database_url:
             "PORT": str(parsed.port or 5432),
         }
 
+# Serverless Postgres (Neon) closes idle connections, so a persisted connection
+# can be dead by the next turn — which surfaced live as "terminating connection
+# due to administrator command" mid-call. Validate the connection is alive before
+# reusing it (Django reconnects transparently if it's stale).
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+DATABASES["default"]["CONN_MAX_AGE"] = 600
+
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
