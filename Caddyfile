@@ -43,3 +43,10 @@
         header_up X-Forwarded-Proto {scheme}
     }
 }
+
+# Bare/apex domain → the app. Without this block, visitors typing the bare
+# domain get a dead connection (Caddy only answers for hostnames it serves).
+# APEX_DOMAIN defaults to a harmless internal-only name when unset.
+{$APEX_DOMAIN} {
+    redir https://{$APP_DOMAIN}{uri} permanent
+}

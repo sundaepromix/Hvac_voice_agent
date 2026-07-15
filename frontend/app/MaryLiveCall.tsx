@@ -16,7 +16,7 @@ const PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY || "";
 const ASSISTANT_ID = process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID || "";
 
 // Hard cap so a public demo line can't run up unbounded voice minutes.
-const MAX_SECONDS = 180;
+const MAX_SECONDS = 300;
 
 type Status = "idle" | "connecting" | "live" | "ended" | "error";
 type Line = { role: "user" | "assistant"; text: string };
@@ -37,6 +37,7 @@ export default function MaryLiveCall({ onClose }: { onClose?: () => void }) {
   const feedRef = useRef<HTMLDivElement | null>(null);
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectedRef = useRef(false);
+  const retriedRef = useRef(false);
 
   const configured = Boolean(PUBLIC_KEY && ASSISTANT_ID);
 
@@ -80,6 +81,14 @@ export default function MaryLiveCall({ onClose }: { onClose?: () => void }) {
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight });
   }, [lines]);
 
+  // Preload the Vapi SDK chunk so tapping "Start" doesn't also pay the
+  // download cost — one less thing that can fail at connect time.
+  useEffect(() => {
+    import("@vapi-ai/web").catch(() => {
+      /* network hiccup — the click path retries the import */
+    });
+  }, []);
+
   // Always tear the call down on unmount.
   useEffect(() => {
     return () => {
@@ -93,12 +102,33 @@ export default function MaryLiveCall({ onClose }: { onClose?: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // One silent retry for transient connect failures (flaky network, a Vapi
+  // hiccup) so a visitor doesn't see an error the first time they tap Start.
+  // Mic-permission problems are never retried — they need user action.
+  function failOrRetry(messageKey: string, detail?: unknown) {
+    if (!connectedRef.current && !retriedRef.current) {
+      retriedRef.current = true;
+      // eslint-disable-next-line no-console
+      console.warn("MaryLiveCall: connect failed, retrying once", detail);
+      clearWatchdog();
+      try {
+        vapiRef.current?.stop();
+      } catch {
+        /* noop */
+      }
+      setTimeout(() => connect(), 1200);
+      return;
+    }
+    fail(messageKey, detail);
+  }
+
   async function start() {
     if (!configured || status === "connecting" || status === "live") return;
     setError(null);
     setLines([]);
     setSeconds(0);
     connectedRef.current = false;
+    retriedRef.current = false;
     setStatus("connecting");
 
     // Surface an already-blocked mic WITHOUT grabbing the device. Acquiring the
@@ -117,6 +147,10 @@ export default function MaryLiveCall({ onClose }: { onClose?: () => void }) {
       /* Permissions API unavailable — let Vapi prompt for the mic itself. */
     }
 
+    await connect();
+  }
+
+  async function connect() {
     try {
       const { default: Vapi } = await import("@vapi-ai/web");
       const vapi: VapiInstance = new Vapi(PUBLIC_KEY);
@@ -127,9 +161,14 @@ export default function MaryLiveCall({ onClose }: { onClose?: () => void }) {
         clearWatchdog();
         setStatus("live");
       });
-      vapi.on("call-end", () => setStatus("ended"));
-      vapi.on("error", (e: unknown) => fail("mary.live.error", e));
-      vapi.on("call-start-failed", (e: unknown) => fail("mary.live.error", e));
+      // Ignore call-end before call-start: tearing down a failed connect
+      // attempt (e.g. before the silent retry) also emits call-end, and that
+      // must not flip the UI out of "connecting".
+      vapi.on("call-end", () => {
+        if (connectedRef.current) setStatus("ended");
+      });
+      vapi.on("error", (e: unknown) => failOrRetry("mary.live.error", e));
+      vapi.on("call-start-failed", (e: unknown) => failOrRetry("mary.live.error", e));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       vapi.on("message", (msg: any) => {
         if (msg?.type === "transcript" && msg?.transcriptType === "final") {
@@ -142,13 +181,13 @@ export default function MaryLiveCall({ onClose }: { onClose?: () => void }) {
       // network or a misconfigured assistant), surface a real error.
       clearWatchdog();
       watchdogRef.current = setTimeout(() => {
-        if (!connectedRef.current) fail("mary.live.timeout");
+        if (!connectedRef.current) failOrRetry("mary.live.timeout");
       }, 25000);
 
       const call = await vapi.start(ASSISTANT_ID);
-      if (!call) fail("mary.live.timeout");
+      if (!call && !connectedRef.current) failOrRetry("mary.live.timeout");
     } catch (e) {
-      fail("mary.live.error", e);
+      failOrRetry("mary.live.error", e);
     }
   }
 

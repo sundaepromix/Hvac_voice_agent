@@ -35,6 +35,8 @@ services:
     volumes:
       - dropline_quote_pdfs:/var/data/quotes
       - dropline_django_cache:/var/data/django-cache
+      # Google Calendar service-account key (optional — scheduling stubs without it).
+      - ./secrets:/app/secrets:ro
     expose:
       - "8000"
 
@@ -71,6 +73,9 @@ services:
     environment:
       API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN in .env}
       APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN in .env}
+      # Bare domain redirected to APP_DOMAIN. Defaults to an internal-only
+      # hostname so deploys without an apex record keep working unchanged.
+      APEX_DOMAIN: ${APEX_DOMAIN:-apex.localhost}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

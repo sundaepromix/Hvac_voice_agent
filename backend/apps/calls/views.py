@@ -192,6 +192,14 @@ def chat_completions(request, secret: str = ""):
         return JsonResponse({"ok": True, "ignored": "no messages payload"})
 
     logger.info("[CUSTOM LLM] %d messages, caller=%s", len(messages), caller_phone)
+    # The Vapi assistant's own system prompt (authored in the Vapi dashboard)
+    # rides along as the first system message. Honor it — the agent appends
+    # runtime mechanics (date/time, tool contract) rather than replacing it.
+    assistant_prompt = next(
+        (m.get("content") for m in messages
+         if m.get("role") == "system" and isinstance(m.get("content"), str) and m.get("content").strip()),
+        None,
+    )
     claude_messages = _openai_to_claude(messages)
     if not claude_messages:
         return JsonResponse({"ok": True, "ignored": "no convertible messages"})
@@ -201,7 +209,8 @@ def chat_completions(request, secret: str = ""):
     if data.get("stream"):
         try:
             mode, *rest = stream_conversation_turn(
-                claude_messages, caller_phone=caller_phone, call_id=call_id)
+                claude_messages, caller_phone=caller_phone, call_id=call_id,
+                assistant_prompt=assistant_prompt)
         except Exception as exc:  # noqa: BLE001 — Vapi must always get a 200 + spoken text
             logger.error("[CUSTOM LLM STREAM ERROR] %s", exc)
             return _stream("I'm sorry, I'm having a technical issue. Please call back in a moment.", False)
@@ -211,7 +220,8 @@ def chat_completions(request, secret: str = ""):
 
     # Non-streaming path — single JSON completion.
     try:
-        result = handle_conversation_turn(claude_messages, caller_phone=caller_phone, call_id=call_id)
+        result = handle_conversation_turn(claude_messages, caller_phone=caller_phone, call_id=call_id,
+                                          assistant_prompt=assistant_prompt)
         text = result["text"]
         end_call = result["end_call"]
     except Exception as exc:  # noqa: BLE001 — Vapi must always get a 200 + spoken text, otherwise the live call drops mid-sentence

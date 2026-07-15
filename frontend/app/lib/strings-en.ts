@@ -452,7 +452,7 @@ export const en: Dict = {
   "mary.live.unmute": "Unmute",
   "mary.live.hangup": "End call",
   "mary.live.close": "Close",
-  "mary.live.consent": "You're talking to an AI receptionist. Calls may be recorded to improve quality. Max 3 minutes.",
+  "mary.live.consent": "You're talking to an AI receptionist. Calls may be recorded to improve quality. Max 5 minutes.",
   "mary.live.soonTitle": "Live voice is almost ready",
   "mary.live.soonBody": "Real-time voice with Mary isn't switched on for this site yet. Book a call and you'll hear her on a real line.",
   "maryModal.line1": "Hi, this is the Mary at WorkflowAuth — how can I help tonight?",

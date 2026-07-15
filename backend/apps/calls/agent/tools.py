@@ -138,6 +138,28 @@ TOOLS = [
         },
     },
     {
+        "name": "transfer_to_human",
+        "description": (
+            "Escalate the call to a human: emergencies, refund/damage/legal complaints, "
+            "callers who ask for a person, or anything you shouldn't handle yourself. "
+            "Logs a priority callback for the office team. The result tells you whether a "
+            "live transfer happened — if not, promise a prompt callback, confirm the "
+            "caller's number, and summarize their issue back. Never pretend a transfer "
+            "succeeded."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reason": {"type": "string", "description": "Why the caller needs a human — emergency, complaint, asked_for_human, complex_sale, etc."},
+                "summary": {"type": "string", "description": "One-sentence summary of the caller's issue for the office team."},
+                "customer_name": {"type": "string"},
+                "customer_phone": {"type": "string", "description": "Best callback number (E.164 if possible)"},
+                "urgency": {"type": "string", "enum": ["emergency", "high", "normal"]},
+            },
+            "required": ["reason", "summary"],
+        },
+    },
+    {
         "name": "end_call",
         "description": "Hang up the call. Use this after you have said goodbye, or after a second silence.",
         "input_schema": {

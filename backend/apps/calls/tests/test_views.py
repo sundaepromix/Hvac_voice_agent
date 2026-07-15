@@ -17,7 +17,10 @@ class ChatCompletionsAuthTests(TestCase):
 
     def test_accepts_when_no_secret_configured(self):
         # Dev mode: VAPI_WEBHOOK_SECRET unset → endpoint open.
-        with patch("apps.calls.agent.receptionist.handle_conversation_turn") as mock_turn:
+        # Patch the view's reference (imported at module load), not the source
+        # module — otherwise the real agent (and a real LLM call) runs.
+        with self.settings(VAPI_WEBHOOK_SECRET=""), \
+             patch("apps.calls.views.handle_conversation_turn") as mock_turn:
             mock_turn.return_value = {"text": "Hi, this is Mary.", "end_call": False}
             res = self.client.post(
                 self.url,
@@ -35,7 +38,7 @@ class ChatCompletionsAuthTests(TestCase):
 
     def test_accepts_when_bearer_matches(self):
         with self.settings(VAPI_WEBHOOK_SECRET="topsecret"), \
-             patch("apps.calls.agent.receptionist.handle_conversation_turn") as mock_turn:
+             patch("apps.calls.views.handle_conversation_turn") as mock_turn:
             mock_turn.return_value = {"text": "ok", "end_call": False}
             res = self.client.post(
                 self.url,
@@ -61,7 +64,8 @@ class VapiWebhookTests(TestCase):
                           "customer": {"number": "+15551234567"}},
             },
         }
-        res = self.client.post(self.url, data=payload, content_type="application/json")
+        with self.settings(VAPI_WEBHOOK_SECRET=""):
+            res = self.client.post(self.url, data=payload, content_type="application/json")
         self.assertEqual(res.status_code, 200)
         from apps.calls.models import Call
         call = Call.objects.get(provider_call_id="vapi-call-1")

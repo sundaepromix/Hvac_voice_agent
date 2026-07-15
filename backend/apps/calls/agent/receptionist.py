@@ -9,13 +9,18 @@ from django.conf import settings
 from django.core.cache import cache
 
 from apps.calls.services.email import send_email
-from apps.calls.services.persistence import book_appointment_tool, draft_quote_tool, qualify_lead_tool
+from apps.calls.services.persistence import (
+    book_appointment_tool,
+    draft_quote_tool,
+    qualify_lead_tool,
+    transfer_to_human_tool,
+)
 from apps.calls.services.scheduling import check_availability
 from apps.calls.services.sms import send_sms
 from apps.core.models import Business
 
 from .openai_loop import run_openai_loop
-from .prompts import get_receptionist_prompt
+from .prompts import get_receptionist_prompt, get_runtime_addendum
 from .tools import TOOLS
 
 logger = logging.getLogger(__name__)
@@ -60,35 +65,44 @@ def _mark_end_call_deferred(call_id: str | None) -> None:
 
 
 # Tools whose results are stable for a given call — re-running them is wasteful
-# and adds 1–3s of LLM + DB latency per turn. We cache the first result for
-# the call lifetime and return it on subsequent calls.
+# and adds 1–3s of LLM + DB latency per turn. Dedup is keyed by (call, tool,
+# input) so an IDENTICAL re-fire (Vapi replays history without tool results)
+# returns the cached result, while a genuinely changed input — more lead
+# fields, a different availability date, corrected booking details — still
+# executes and updates the same row in place.
 _DEDUPABLE_TOOLS = {"qualify_lead", "draft_quote", "book_appointment", "check_availability"}
 
 
-def _tool_cache_get(call_id: str | None, tool: str) -> dict | None:
+def _tool_cache_key(call_id: str, tool: str, tool_input: dict | None) -> str:
+    import hashlib
+    digest = hashlib.md5(
+        json.dumps(tool_input or {}, sort_keys=True, default=str).encode()
+    ).hexdigest()
+    return f"tool_done:{call_id}:{tool}:{digest}"
+
+
+def _tool_cache_get(call_id: str | None, tool: str, tool_input: dict | None) -> dict | None:
     if not call_id or tool not in _DEDUPABLE_TOOLS:
         return None
-    return cache.get(f"tool_done:{call_id}:{tool}")
+    return cache.get(_tool_cache_key(call_id, tool, tool_input))
 
 
-def _tool_cache_set(call_id: str | None, tool: str, result: dict) -> None:
+def _tool_cache_set(call_id: str | None, tool: str, tool_input: dict | None, result: dict) -> None:
     if not call_id or tool not in _DEDUPABLE_TOOLS:
         return
-    cache.set(f"tool_done:{call_id}:{tool}", result, timeout=_CALL_STATE_TTL)
+    cache.set(_tool_cache_key(call_id, tool, tool_input), result, timeout=_CALL_STATE_TTL)
+    cache.set(f"tool_ran:{call_id}:{tool}", True, timeout=_CALL_STATE_TTL)
 
 
 def _tools_already_run(call_id: str | None) -> list[str]:
-    """Names of tools that have already been called (cached result exists)
-    on this call_id — used to nudge the model not to re-fire them."""
+    """Names of tools that have already been called on this call_id — used to
+    nudge the model not to re-fire them with identical arguments."""
     if not call_id:
         return []
     done: list[str] = []
     for tool in sorted(_DEDUPABLE_TOOLS):
-        if cache.get(f"tool_done:{call_id}:{tool}") is not None:
+        if cache.get(f"tool_ran:{call_id}:{tool}"):
             done.append(tool)
-    if cache.get(f"sms_sent:{call_id}:*"):
-        done.append("send_sms")
-    # send_sms is keyed per-recipient, scan a couple of common recipient keys.
     return done
 
 
@@ -177,26 +191,28 @@ def execute_tool(name: str, tool_input: dict, *, caller_phone: str | None = None
     `business` is the resolved Business — its dashboard-saved Twilio creds
     take priority over env-var fallbacks for outbound SMS.
     """
-    cached = _tool_cache_get(call_id, name)
+    cached = _tool_cache_get(call_id, name, tool_input)
     if cached is not None:
         logger.info("[TOOL DEDUP] returning cached %s for call_id=%s", name, call_id)
         return {**cached, "deduped": True}
 
     if name == "qualify_lead":
         result = qualify_lead_tool(tool_input, verified_phone=caller_phone, call_id=call_id)
-        _tool_cache_set(call_id, name, result)
+        _tool_cache_set(call_id, name, tool_input, result)
         return result
     if name == "book_appointment":
-        result = book_appointment_tool(tool_input, verified_phone=caller_phone, call_id=call_id)
-        _tool_cache_set(call_id, name, result)
+        result = book_appointment_tool(tool_input, verified_phone=caller_phone, call_id=call_id,
+                                       business=business)
+        _tool_cache_set(call_id, name, tool_input, result)
         return result
     if name == "draft_quote":
         result = draft_quote_tool(tool_input, verified_phone=caller_phone, call_id=call_id)
-        _tool_cache_set(call_id, name, result)
+        _tool_cache_set(call_id, name, tool_input, result)
         return result
     if name == "check_availability":
-        result = check_availability(tool_input["date"], tool_input.get("trade"))
-        _tool_cache_set(call_id, name, result)
+        tz_name = (getattr(business, "timezone", "") or "America/Los_Angeles").strip() or "America/Los_Angeles"
+        result = check_availability(tool_input["date"], tool_input.get("trade"), tz_name=tz_name)
+        _tool_cache_set(call_id, name, tool_input, result)
         return result
     if name == "send_sms":
         to = (tool_input.get("to") or "").strip() or (caller_phone or "")
@@ -208,6 +224,8 @@ def execute_tool(name: str, tool_input: dict, *, caller_phone: str | None = None
         if result.get("ok"):
             _mark_sms_sent(call_id, to, result)
         return result
+    if name == "transfer_to_human":
+        return transfer_to_human_tool(tool_input, verified_phone=caller_phone, call_id=call_id)
     if name == "send_email":
         to = (tool_input.get("to") or "").strip()
         return send_email(to, tool_input.get("subject", ""), tool_input.get("body", ""), business=business)
@@ -272,11 +290,17 @@ def _user_turn_count(history: list) -> int:
     )
 
 
-def _prepare_turn(conversation_history: list, caller_phone: str | None, call_id: str | None):
+def _prepare_turn(conversation_history: list, caller_phone: str | None, call_id: str | None,
+                  assistant_prompt: str | None = None):
     """Shared per-turn setup: resolve the business and build the system prompt.
 
     Returns (business, system_prompt, persona). Used by both the blocking
     `handle_conversation_turn` and the streaming `stream_conversation_turn`.
+
+    `assistant_prompt` is the system prompt the Vapi assistant carries (written
+    by the operator in the Vapi dashboard). When present it OWNS the persona and
+    call policies, and we only append the runtime mechanics (date/time, tool
+    contract, knowledge base). Without one we fall back to the built-in prompt.
     """
     _log_transcript(conversation_history, caller_phone, call_id)
 
@@ -294,11 +318,16 @@ def _prepare_turn(conversation_history: list, caller_phone: str | None, call_id:
     persona = (getattr(biz, "voice_persona", "") or "Mary").strip() or "Mary"
     currency = (getattr(biz, "currency", "") or "USD").upper()
 
-    system_prompt = get_receptionist_prompt(
-        business_name=biz_name, trade=trade, knowledge_base=kb, timezone=tz,
-        currency=currency,
-        persona_name=persona,
-    )
+    if (assistant_prompt or "").strip():
+        system_prompt = assistant_prompt.strip() + get_runtime_addendum(
+            knowledge_base=kb, timezone=tz,
+        )
+    else:
+        system_prompt = get_receptionist_prompt(
+            business_name=biz_name, trade=trade, knowledge_base=kb, timezone=tz,
+            currency=currency,
+            persona_name=persona,
+        )
     if caller_phone:
         system_prompt += (
             f"\n\nCALLER INFO:\n- Caller's phone is {caller_phone}. Use it as the default "
@@ -315,9 +344,11 @@ def _prepare_turn(conversation_history: list, caller_phone: str | None, call_id:
     if already_run:
         system_prompt += (
             "\n\nTOOLS ALREADY DONE THIS CALL: " + ", ".join(already_run) + ".\n"
-            "These specific tools above have already saved data this call — "
-            "don't re-fire them. ALL OTHER TOOLS are still available and you "
-            "MUST call them when needed (e.g. if the customer agreed to a "
+            "These tools have already saved data this call — only re-fire one "
+            "of them if the details GENUINELY changed (new field learned, "
+            "different date requested, caller corrected something); the update "
+            "lands on the same record. ALL OTHER TOOLS are still available and "
+            "you MUST call them when needed (e.g. if the customer agreed to a "
             "quote and draft_quote is NOT in the list above, call draft_quote "
             "now — don't just say you will)."
         )
@@ -326,9 +357,11 @@ def _prepare_turn(conversation_history: list, caller_phone: str | None, call_id:
 
 
 def handle_conversation_turn(conversation_history: list, caller_phone: str | None = None,
-                              call_id: str | None = None) -> dict[str, Any]:
+                              call_id: str | None = None,
+                              assistant_prompt: str | None = None) -> dict[str, Any]:
     """Run the agentic loop for one Vapi turn. Returns {text, end_call}."""
-    biz, system_prompt, persona = _prepare_turn(conversation_history, caller_phone, call_id)
+    biz, system_prompt, persona = _prepare_turn(
+        conversation_history, caller_phone, call_id, assistant_prompt=assistant_prompt)
 
     provider = (getattr(biz, "llm_provider", "") or "anthropic").lower()
 
@@ -497,7 +530,8 @@ def handle_conversation_turn(conversation_history: list, caller_phone: str | Non
 
 
 def stream_conversation_turn(conversation_history: list, caller_phone: str | None = None,
-                             call_id: str | None = None):
+                             call_id: str | None = None,
+                             assistant_prompt: str | None = None):
     """Streaming variant for Vapi's custom-LLM `stream: true` requests.
 
     Returns one of:
@@ -519,16 +553,19 @@ def stream_conversation_turn(conversation_history: list, caller_phone: str | Non
     # Real-hangup turn → blocking so the hangup header is set correctly. These
     # turns carry only short fixed text, so there's no streaming latency to lose.
     if _end_call_already_deferred(call_id):
-        r = handle_conversation_turn(conversation_history, caller_phone, call_id)
+        r = handle_conversation_turn(conversation_history, caller_phone, call_id,
+                                     assistant_prompt=assistant_prompt)
         return ("blocking", r.get("text") or "", bool(r.get("end_call")))
 
-    biz, system_prompt, persona = _prepare_turn(conversation_history, caller_phone, call_id)
+    biz, system_prompt, persona = _prepare_turn(
+        conversation_history, caller_phone, call_id, assistant_prompt=assistant_prompt)
     provider = (getattr(biz, "llm_provider", "") or "anthropic").lower()
 
     # Only OpenAI streams token-by-token here; anything else uses the proven
     # blocking path (chunked by the view).
     if provider != "openai":
-        r = handle_conversation_turn(conversation_history, caller_phone, call_id)
+        r = handle_conversation_turn(conversation_history, caller_phone, call_id,
+                                     assistant_prompt=assistant_prompt)
         return ("blocking", r.get("text") or "", bool(r.get("end_call")))
 
     oai = _openai_client(biz)

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { apiFetch, apiJson, getCurrentUser } from "@/app/lib/api";
 
+import AutoRefresh from "./AutoRefresh";
 import Sidebar from "./Sidebar";
 import { DashGlobalTopbar } from "./Topbar";
 
@@ -53,6 +54,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const personaName = (bizPage?.results?.[0]?.voice_persona || "").trim() || "Mary";
   return (
     <div className="app-shell">
+      <AutoRefresh />
       <Sidebar
         counts={{ leads, calls, quotes, businesses, tickets }}
         user={{ name: sidebarName, business: sidebarBusiness }}

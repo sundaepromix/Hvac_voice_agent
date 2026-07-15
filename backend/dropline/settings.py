@@ -217,6 +217,13 @@ TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "")
 
+# Google Calendar (service account). When both are set and the JSON key file
+# exists, check_availability/book_appointment use the real calendar; otherwise
+# they fall back to the built-in stub slots. Share the calendar with the
+# service account's client_email (with "Make changes to events" access).
+GOOGLE_CALENDAR_CREDENTIALS_PATH = os.environ.get("GOOGLE_CALENDAR_CREDENTIALS_PATH", "")
+GOOGLE_CALENDAR_ID = os.environ.get("GOOGLE_CALENDAR_ID", "")
+
 # Email — Django SMTP. Set EMAIL_HOST + EMAIL_HOST_USER + EMAIL_HOST_PASSWORD
 # in .env (works with Resend, SendGrid, Postmark, Gmail SMTP, etc.). If unset,
 # send_email() stubs to stdout so dev never crashes.

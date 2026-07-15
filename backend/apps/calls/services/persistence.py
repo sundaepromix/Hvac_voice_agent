@@ -151,13 +151,13 @@ def qualify_lead_tool(payload: dict[str, Any], verified_phone: str | None = None
 
 
 def book_appointment_tool(payload: dict[str, Any], verified_phone: str | None = None,
-                           call_id: str | None = None) -> dict[str, Any]:
+                           call_id: str | None = None, business: Business | None = None) -> dict[str, Any]:
     """Tool implementation: book a confirmed service appointment.
 
     Reuses the Lead row already opened by qualify_lead in this same call
     (matched by vapi_call_id), or the most recent open lead for the customer.
     """
-    business = _default_business()
+    business = business or _default_business()
     if not business:
         return {"error": "No business configured."}
 
@@ -218,12 +218,109 @@ def book_appointment_tool(payload: dict[str, Any], verified_phone: str | None = 
         role="system",
         body=f"Booking confirmed: {booking_summary}",
     )
-    logger.info("[BOOK] lead=%s when=%s %s", lead.id, payload.get("date"), payload.get("time"))
+
+    # Best-effort Google Calendar sync — booking succeeds in the dashboard
+    # whether or not the calendar is configured/reachable.
+    from apps.calls.services.scheduling import create_calendar_event
+    tz_name = (business.timezone or "").strip() or "America/Los_Angeles"
+    event_id = create_calendar_event(
+        date_str=payload.get("date") or "",
+        time_str=payload.get("time") or "",
+        duration_minutes=payload.get("duration_minutes") or 60,
+        summary=f"{payload.get('trade', 'Service').title()} — {cust.name or canonical_phone or 'customer'}",
+        description=(
+            f"{payload.get('project_summary', '')}\n"
+            f"Phone: {canonical_phone or 'unknown'}\n"
+            f"Address: {payload.get('address', '')}\n"
+            f"Booked by the AI receptionist (lead #{lead.id})."
+        ).strip(),
+        tz_name=tz_name,
+    )
+    if event_id:
+        lead.extracted_fields = {**(lead.extracted_fields or {}), "calendar_event_id": event_id}
+        lead.save(update_fields=["extracted_fields", "updated_at"])
+
+    logger.info("[BOOK] lead=%s when=%s %s calendar=%s",
+                lead.id, payload.get("date"), payload.get("time"), event_id or "not-synced")
     return {
         "success": True,
         "lead_id": lead.id,
         "customer_id": cust.id,
+        "calendar_synced": bool(event_id),
         "message": f"Booked {booking_summary}",
+    }
+
+
+def transfer_to_human_tool(payload: dict[str, Any], verified_phone: str | None = None,
+                           call_id: str | None = None) -> dict[str, Any]:
+    """Tool implementation: log a priority human-callback request.
+
+    There is no live transfer line wired up yet, so the honest contract is:
+    flag the lead for an urgent human callback and tell the model the transfer
+    did NOT happen, so it follows its "transfer isn't possible" script instead
+    of leaving the caller in dead air.
+    """
+    business = _default_business()
+    if not business:
+        return {"error": "No business configured."}
+
+    canonical_phone, callback_phone = _resolve_phone(payload, verified_phone)
+    reason = (payload.get("reason") or "caller requested a human")[:255]
+    summary = (payload.get("summary") or "")[:512]
+    urgency = payload.get("urgency") or "high"
+
+    cust = upsert_customer(
+        business=business,
+        name=payload.get("customer_name"),
+        phone=canonical_phone,
+    )
+    lead = _find_lead_for_call(business, cust, call_id)
+    escalation = {
+        "transfer_requested": True,
+        "transfer_reason": reason,
+        "transfer_urgency": urgency,
+        "transfer_requested_at": timezone.now().isoformat(),
+    }
+    if callback_phone:
+        escalation["callback_phone"] = callback_phone
+    if call_id:
+        escalation["vapi_call_id"] = call_id
+
+    if lead:
+        if summary and not lead.project_summary:
+            lead.project_summary = summary
+        lead.temperature = "hot"
+        lead.extracted_fields = {**(lead.extracted_fields or {}), **escalation}
+        lead.save()
+    else:
+        lead = Lead.objects.create(
+            business=business,
+            customer=cust,
+            project_summary=summary or f"Escalation: {reason}",
+            status="qualifying",
+            temperature="hot",
+            extracted_fields=escalation,
+        )
+
+    convo = lead.conversations.order_by("-started_at").first() or Conversation.objects.create(lead=lead)
+    Message.objects.create(
+        conversation=convo,
+        direction="out",
+        role="system",
+        body=f"ESCALATION — human callback requested ({urgency}). Reason: {reason}. {summary}",
+    )
+    logger.info("[TRANSFER_TO_HUMAN] lead=%s reason=%s urgency=%s", lead.id, reason, urgency)
+    return {
+        "success": True,
+        "transferred": False,
+        "callback_logged": True,
+        "lead_id": lead.id,
+        "message": (
+            "No live transfer line is available right now. The issue is flagged as a "
+            "priority callback for the office team. Tell the caller you couldn't reach "
+            "the team this second, that someone will call them back promptly, confirm "
+            "their callback number, and summarize the issue back to them."
+        ),
     }
 
 

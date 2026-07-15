@@ -18,6 +18,9 @@ export default async function OverviewPage() {
   const quotes = quotesRes?.results ?? [];
   const currency = businessesRes?.results?.[0]?.currency ?? "USD";
 
+  // API responses are paginated — use the real totals, not the page length.
+  const leadCount = leadsRes?.count ?? leads.length;
+  const quoteCount = quotesRes?.count ?? quotes.length;
   const totalQuoteValue = quotes.reduce((s, q) => s + parseFloat(q.total || "0"), 0);
   const bookedCount = leads.filter((l) => l.status === "booked" || l.status === "won").length;
   const wonCount = leads.filter((l) => l.status === "won").length;
@@ -37,8 +40,8 @@ export default async function OverviewPage() {
 
       <div className="app-content">
         <div className="mock-kpis" style={{ padding: 0 }}>
-          <Kpi label="Total Leads" value={leads.length} delta={leads.length > 0 ? `${leads.length} captured` : "Awaiting first inbound"} />
-          <Kpi label="Quoted value" value={fmtMoney(totalQuoteValue, currency)} delta={`${quotes.length} drafted by AI`} />
+          <Kpi label="Total Leads" value={leadCount} delta={leadCount > 0 ? `${leadCount} captured` : "Awaiting first inbound"} />
+          <Kpi label="Quoted value" value={fmtMoney(totalQuoteValue, currency)} delta={`${quoteCount} drafted by AI`} />
           <Kpi label="Bookings" value={bookedCount} delta={wonCount > 0 ? `${wonCount} won` : "—"} />
         </div>
 
@@ -50,7 +53,7 @@ export default async function OverviewPage() {
                 <span className="mock-pulse" /> Live
               </span>
             </h2>
-            <Link href="/dashboard/leads" className="dash-card-meta">View all {leads.length} →</Link>
+            <Link href="/dashboard/leads" className="dash-card-meta">View all {leadCount} →</Link>
           </div>
 
           <div className="app-table-head">
