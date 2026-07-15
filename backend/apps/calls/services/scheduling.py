@@ -108,7 +108,16 @@ def _busy_ranges(date: datetime.date, tz: ZoneInfo, token: str) -> list[tuple[da
             timeout=_HTTP_TIMEOUT,
         )
         resp.raise_for_status()
-        busy = resp.json().get("calendars", {}).get(cal_id, {}).get("busy", [])
+        entry = resp.json().get("calendars", {}).get(cal_id, {})
+        # A calendar we can't read (unshared, wrong id, revoked key) comes back
+        # with `errors` and no `busy`. Treating that as "nothing is busy" would
+        # silently double-book every real appointment, so fail to the stub.
+        errors = entry.get("errors")
+        if errors:
+            logger.error("[GCAL] freeBusy denied for %s: %s — falling back to stub slots",
+                         cal_id, errors)
+            return None
+        busy = entry.get("busy", [])
         out: list[tuple[datetime, datetime]] = []
         for b in busy:
             start = datetime.fromisoformat(b["start"].replace("Z", "+00:00"))
