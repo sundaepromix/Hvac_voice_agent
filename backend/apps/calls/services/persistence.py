@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -70,21 +71,26 @@ def _resolve_phone(payload: dict[str, Any], verified_phone: str | None) -> tuple
 def _find_lead_for_call(business: Business, customer: Customer, call_id: str | None) -> Lead | None:
     """Find the Lead row that belongs to the active call.
 
-    Strategy: prefer dedup by `vapi_call_id` stored in extracted_fields — that
-    binds every tool fire within one phone call to a single Lead row. Fall
-    back to the most recent open lead for this customer.
+    One phone call == one Lead row. With a call_id, match strictly by the
+    `vapi_call_id` stamped into extracted_fields on the first tool fire — the
+    customer filter is deliberately omitted because the customer row can be
+    re-resolved mid-call as the caller's identity firms up. A repeat caller
+    must get a FRESH lead, never have an old row resurrected and overwritten.
+
+    Without a call_id (chat widget, tests) fall back to an open lead touched
+    recently enough to plausibly be the same conversation.
     """
     if call_id:
-        existing = Lead.objects.filter(
-            business=business, customer=customer,
+        return Lead.objects.filter(
+            business=business,
             extracted_fields__vapi_call_id=call_id,
         ).order_by("-created_at").first()
-        if existing:
-            return existing
+    recent = timezone.now() - timedelta(hours=2)
     return Lead.objects.filter(
         business=business, customer=customer,
-        status__in=["new", "qualifying", "quoted", "booked"],
-    ).order_by("-created_at").first()
+        status__in=["new", "qualifying", "quoted"],
+        updated_at__gte=recent,
+    ).order_by("-updated_at").first()
 
 
 def qualify_lead_tool(payload: dict[str, Any], verified_phone: str | None = None,
@@ -119,6 +125,8 @@ def qualify_lead_tool(payload: dict[str, Any], verified_phone: str | None = None
     lead = _find_lead_for_call(business, cust, call_id)
 
     if lead:
+        if lead.customer_id != cust.id:
+            lead.customer = cust
         if summary:
             lead.project_summary = summary
         if estimated_dec is not None:
@@ -192,6 +200,8 @@ def book_appointment_tool(payload: dict[str, Any], verified_phone: str | None = 
         booking_extracted["vapi_call_id"] = call_id
 
     if lead:
+        if lead.customer_id != cust.id:
+            lead.customer = cust
         lead.status = "booked"
         lead.project_summary = booking_summary[:512]
         lead.estimated_value = estimated_dec or lead.estimated_value
@@ -332,6 +342,8 @@ def transfer_to_human_tool(payload: dict[str, Any], verified_phone: str | None =
         escalation["vapi_call_id"] = call_id
 
     if lead:
+        if lead.customer_id != cust.id:
+            lead.customer = cust
         if summary and not lead.project_summary:
             lead.project_summary = summary
         lead.temperature = "hot"
@@ -357,14 +369,17 @@ def transfer_to_human_tool(payload: dict[str, Any], verified_phone: str | None =
     logger.info("[TRANSFER_TO_HUMAN] lead=%s reason=%s urgency=%s", lead.id, reason, urgency)
     return {
         "success": True,
+        "escalated": True,
         "transferred": False,
         "callback_logged": True,
         "lead_id": lead.id,
         "message": (
-            "No live transfer line is available right now. The issue is flagged as a "
-            "priority callback for the office team. Tell the caller you couldn't reach "
-            "the team this second, that someone will call them back promptly, confirm "
-            "their callback number, and summarize the issue back to them."
+            "Escalation logged: the right person has been notified with the caller's "
+            "details and will call back shortly. Tell the caller, calm and confident: "
+            "you've escalated this to the right person and someone will call them back "
+            "on this number in a short time. If you don't have their number yet, confirm "
+            "it now. Never apologize for a failed transfer and never mention transfer "
+            "lines or system limitations — the escalation itself succeeded."
         ),
     }
 

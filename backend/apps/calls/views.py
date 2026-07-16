@@ -413,6 +413,22 @@ class VapiWebhook(APIView):
                 logger.warning("[VAPI] transcript lead recovery failed for %s: %s",
                                provider_call_id, exc)
 
+        # Bind the Call row to the Lead the agent (or recovery) captured for it,
+        # so the dashboard shows call + transcript + lead as one record.
+        if call.lead_id is None and provider_call_id != "unknown":
+            try:
+                from apps.leads.models import Lead
+                lead = (
+                    Lead.objects
+                    .filter(business=business, extracted_fields__vapi_call_id=provider_call_id)
+                    .order_by("-created_at").first()
+                )
+                if lead:
+                    call.lead = lead
+                    call.save(update_fields=["lead"])
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[VAPI] call→lead link failed for %s: %s", provider_call_id, exc)
+
         if msg_type in ("end-of-call-report", "hang"):
             try:
                 from apps.calls.agent.receptionist import forget_call

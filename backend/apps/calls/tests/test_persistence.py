@@ -5,9 +5,13 @@ the qualify_lead and book_appointment tools that persist Lead/Customer rows.
 """
 from django.test import TestCase
 
-from apps.calls.services.persistence import book_appointment_tool, qualify_lead_tool
+from apps.calls.services.persistence import (
+    book_appointment_tool,
+    qualify_lead_tool,
+    transfer_to_human_tool,
+)
 from apps.core.models import Business
-from apps.leads.models import Lead
+from apps.leads.models import Customer, Lead
 
 
 class QualifyLeadToolTests(TestCase):
@@ -48,6 +52,47 @@ class QualifyLeadToolTests(TestCase):
         self.assertEqual(first["lead_id"], second["lead_id"])
         self.assertEqual(Lead.objects.count(), 1)
 
+    def test_new_call_from_repeat_customer_creates_fresh_lead(self):
+        first = qualify_lead_tool(
+            {"customer_name": "Jane Doe", "project_summary": "AC issue"},
+            verified_phone="+15551234567",
+            call_id="call-monday",
+        )
+        second = qualify_lead_tool(
+            {"customer_name": "Jane Doe", "project_summary": "Water heater is leaking"},
+            verified_phone="+15551234567",
+            call_id="call-friday",
+        )
+
+        self.assertNotEqual(first["lead_id"], second["lead_id"])
+        self.assertEqual(Lead.objects.count(), 2)
+        self.assertEqual(Customer.objects.count(), 1)
+        old = Lead.objects.get(pk=first["lead_id"])
+        self.assertEqual(old.project_summary, "AC issue")
+
+    def test_new_call_does_not_overwrite_previously_booked_lead(self):
+        qualify_lead_tool(
+            {"customer_name": "Jane Doe", "project_summary": "Heater out"},
+            verified_phone="+15551234567",
+            call_id="call-1",
+        )
+        book_appointment_tool(
+            {"customer_name": "Jane Doe", "trade": "hvac",
+             "date": "2026-05-15", "time": "10:00", "project_summary": "Heater repair"},
+            verified_phone="+15551234567",
+            call_id="call-1",
+        )
+        rebook = book_appointment_tool(
+            {"customer_name": "Jane Doe", "trade": "plumbing",
+             "date": "2026-06-01", "time": "14:00", "project_summary": "Toilet repair"},
+            verified_phone="+15551234567",
+            call_id="call-2",
+        )
+
+        self.assertEqual(Lead.objects.count(), 2)
+        first_lead = Lead.objects.exclude(pk=rebook["lead_id"]).get()
+        self.assertIn("Heater repair", first_lead.project_summary)
+
     def test_hallucinated_phone_does_not_overwrite_caller_id(self):
         result = qualify_lead_tool(
             {"customer_phone": "+15559999999"},
@@ -85,3 +130,27 @@ class BookAppointmentToolTests(TestCase):
         self.assertEqual(Lead.objects.count(), 1)
         lead = Lead.objects.get(pk=booking["lead_id"])
         self.assertEqual(lead.status, "booked")
+
+
+class TransferToHumanToolTests(TestCase):
+    def setUp(self):
+        self.business = Business.objects.create(name="Acme HVAC", slug="acme")
+
+    def test_escalation_script_promises_callback_without_apologizing(self):
+        result = transfer_to_human_tool(
+            {"reason": "burst pipe flooding the kitchen", "urgency": "emergency"},
+            verified_phone="+15551234567",
+            call_id="call-911",
+        )
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["escalated"])
+        self.assertTrue(result["callback_logged"])
+        message = result["message"].lower()
+        self.assertIn("escalated", message)
+        self.assertIn("call them back", message)
+        self.assertNotIn("couldn't reach", message)
+        self.assertNotIn("no live transfer", message)
+        lead = Lead.objects.get(pk=result["lead_id"])
+        self.assertEqual(lead.temperature, "hot")
+        self.assertTrue(lead.extracted_fields["transfer_requested"])
