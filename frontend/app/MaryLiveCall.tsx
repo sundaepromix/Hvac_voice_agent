@@ -33,13 +33,94 @@ export default function MaryLiveCall({ onClose }: { onClose?: () => void }) {
   const [seconds, setSeconds] = useState(0);
   const [muted, setMuted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [micHint, setMicHint] = useState(false);
   const vapiRef = useRef<VapiInstance | null>(null);
   const feedRef = useRef<HTMLDivElement | null>(null);
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectedRef = useRef(false);
   const retriedRef = useRef(false);
+  const ringRef = useRef<{ stop: () => void } | null>(null);
 
   const configured = Boolean(PUBLIC_KEY && ASSISTANT_ID);
+
+  // Synthesized ringback (440+480 Hz, 2s on / 4s off — a normal phone ring) so
+  // the connection wait reads as "ringing Mary" instead of broken silence.
+  // Started from the click handler, so the AudioContext is gesture-unlocked.
+  function startRingback() {
+    if (ringRef.current) return;
+    try {
+      const Ctor =
+        window.AudioContext ||
+        // reason: Safari < 14.1 only exposes the webkit-prefixed constructor.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).webkitAudioContext;
+      const ctx: AudioContext = new Ctor();
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      gain.connect(ctx.destination);
+      const oscA = ctx.createOscillator();
+      const oscB = ctx.createOscillator();
+      oscA.frequency.value = 440;
+      oscB.frequency.value = 480;
+      oscA.connect(gain);
+      oscB.connect(gain);
+      oscA.start();
+      oscB.start();
+      const burst = () => {
+        const t0 = ctx.currentTime + 0.05;
+        gain.gain.setValueAtTime(0, t0);
+        gain.gain.linearRampToValueAtTime(0.06, t0 + 0.04);
+        gain.gain.setValueAtTime(0.06, t0 + 1.96);
+        gain.gain.linearRampToValueAtTime(0, t0 + 2);
+      };
+      burst();
+      const interval = setInterval(burst, 6000);
+      ringRef.current = {
+        stop: () => {
+          clearInterval(interval);
+          try {
+            oscA.stop();
+            oscB.stop();
+          } catch {
+            /* noop */
+          }
+          ctx.close().catch(() => {});
+        },
+      };
+    } catch {
+      /* No WebAudio — connect silently, same as before. */
+    }
+  }
+
+  function stopRingback() {
+    ringRef.current?.stop();
+    ringRef.current = null;
+  }
+
+  function wireListeners(vapi: VapiInstance): VapiInstance {
+    vapi.on("call-start", () => {
+      connectedRef.current = true;
+      clearWatchdog();
+      stopRingback();
+      setStatus("live");
+    });
+    // Ignore call-end before call-start: tearing down a failed connect
+    // attempt (e.g. before the silent retry) also emits call-end, and that
+    // must not flip the UI out of "connecting".
+    vapi.on("call-end", () => {
+      if (connectedRef.current) setStatus("ended");
+    });
+    vapi.on("error", (e: unknown) => failOrRetry("mary.live.error", e));
+    vapi.on("call-start-failed", (e: unknown) => failOrRetry("mary.live.error", e));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vapi.on("message", (msg: any) => {
+      if (msg?.type === "transcript" && msg?.transcriptType === "final") {
+        const role: Line["role"] = msg.role === "user" ? "user" : "assistant";
+        setLines((cur) => [...cur, { role, text: String(msg.transcript ?? "") }]);
+      }
+    });
+    return vapi;
+  }
 
   function clearWatchdog() {
     if (watchdogRef.current) {
@@ -50,6 +131,7 @@ export default function MaryLiveCall({ onClose }: { onClose?: () => void }) {
 
   function fail(messageKey: string, detail?: unknown) {
     clearWatchdog();
+    stopRingback();
     setError(t(messageKey));
     setStatus("error");
     try {
@@ -81,18 +163,43 @@ export default function MaryLiveCall({ onClose }: { onClose?: () => void }) {
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight });
   }, [lines]);
 
-  // Preload the Vapi SDK chunk so tapping "Start" doesn't also pay the
-  // download cost — one less thing that can fail at connect time.
+  // Pre-warm on mount: download the SDK chunk AND build the wired client, so
+  // tapping "Start" pays only for vapi.start() itself.
   useEffect(() => {
-    import("@vapi-ai/web").catch(() => {
-      /* network hiccup — the click path retries the import */
-    });
+    let cancelled = false;
+    import("@vapi-ai/web")
+      .then(({ default: Vapi }) => {
+        if (!cancelled && configured && !vapiRef.current) {
+          vapiRef.current = wireListeners(new Vapi(PUBLIC_KEY));
+        }
+      })
+      .catch(() => {
+        /* network hiccup — the click path retries the import */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // If the browser will show a mic-permission prompt, warn up front so the
+  // wait on that dialog isn't blamed on the connection.
+  useEffect(() => {
+    navigator.permissions
+      ?.query?.({ name: "microphone" as PermissionName })
+      .then((perm) => {
+        if (perm?.state === "prompt") setMicHint(true);
+      })
+      .catch(() => {
+        /* Permissions API unavailable — skip the hint. */
+      });
   }, []);
 
   // Always tear the call down on unmount.
   useEffect(() => {
     return () => {
       clearWatchdog();
+      stopRingback();
       try {
         vapiRef.current?.stop();
       } catch {
@@ -130,6 +237,7 @@ export default function MaryLiveCall({ onClose }: { onClose?: () => void }) {
     connectedRef.current = false;
     retriedRef.current = false;
     setStatus("connecting");
+    startRingback();
 
     // Surface an already-blocked mic WITHOUT grabbing the device. Acquiring the
     // mic here and stopping the tracks (the old approach) left Vapi/Daily unable
@@ -152,30 +260,12 @@ export default function MaryLiveCall({ onClose }: { onClose?: () => void }) {
 
   async function connect() {
     try {
-      const { default: Vapi } = await import("@vapi-ai/web");
-      const vapi: VapiInstance = new Vapi(PUBLIC_KEY);
-      vapiRef.current = vapi;
-
-      vapi.on("call-start", () => {
-        connectedRef.current = true;
-        clearWatchdog();
-        setStatus("live");
-      });
-      // Ignore call-end before call-start: tearing down a failed connect
-      // attempt (e.g. before the silent retry) also emits call-end, and that
-      // must not flip the UI out of "connecting".
-      vapi.on("call-end", () => {
-        if (connectedRef.current) setStatus("ended");
-      });
-      vapi.on("error", (e: unknown) => failOrRetry("mary.live.error", e));
-      vapi.on("call-start-failed", (e: unknown) => failOrRetry("mary.live.error", e));
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      vapi.on("message", (msg: any) => {
-        if (msg?.type === "transcript" && msg?.transcriptType === "final") {
-          const role: Line["role"] = msg.role === "user" ? "user" : "assistant";
-          setLines((cur) => [...cur, { role, text: String(msg.transcript ?? "") }]);
-        }
-      });
+      let vapi = vapiRef.current;
+      if (!vapi) {
+        const { default: Vapi } = await import("@vapi-ai/web");
+        vapi = wireListeners(new Vapi(PUBLIC_KEY));
+        vapiRef.current = vapi;
+      }
 
       // Backstop: if neither call-start nor an error fires (e.g. a flaky
       // network or a misconfigured assistant), surface a real error.
@@ -193,6 +283,7 @@ export default function MaryLiveCall({ onClose }: { onClose?: () => void }) {
 
   function stop() {
     clearWatchdog();
+    stopRingback();
     try {
       vapiRef.current?.stop();
     } catch {
@@ -239,6 +330,10 @@ export default function MaryLiveCall({ onClose }: { onClose?: () => void }) {
 
       {(status === "idle" || status === "connecting") && (
         <p className="mlc-context">{t("mary.live.context")}</p>
+      )}
+
+      {micHint && (status === "idle" || status === "connecting") && (
+        <p className="mlc-mic-hint">{t("mary.live.micHint")}</p>
       )}
 
       <div className="mlc-status">

@@ -11213,6 +11213,7 @@ html, body {
 .mlc-bubble.assistant .mlc-bubble-who { color: var(--brand); }
 .mlc-bubble.user { align-items: flex-end; text-align: right; }
 .mlc-hint { color: var(--muted); font-size: 0.88rem; text-align: center; padding: 8px; }
+.mlc-mic-hint { color: var(--muted-2); font-size: 0.8rem; text-align: center; margin: -6px 0 0; }
 .mlc-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .mlc-consent { font-size: 0.74rem; color: var(--muted-2); margin: 0; line-height: 1.45; max-width: 340px; }
 .mlc-notice {
