@@ -19,6 +19,39 @@ logger = logging.getLogger(__name__)
 # bigger model for a specific business.
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
+# "Let me check that for you" with no tool call = the caller sits in dead air
+# until they speak again (observed live: two stalled turns in a row before
+# check_availability ever fired). When a text-only turn verbalizes intent like
+# this, we retry ONCE with an explicit instruction to actually call the tool.
+_INTENT_PHRASES = (
+    "let me check", "let me see what", "let me look", "let me pull",
+    "let me get that", "let me book", "let me draft", "let me put",
+    "i'll check", "i'll book", "i'll draft", "i'll get that",
+    "one moment", "just a moment", "give me a moment", "give me a second",
+    "bear with me", "hold on", "checking availability", "checking the calendar",
+    "right away", "checking that now",
+)
+
+_NUDGE_MESSAGE = (
+    "[system: you just told the caller you're doing it — call the actual tool NOW "
+    "in this response. Do not reply with more talk.]"
+)
+
+
+def _verbalized_intent(text: str) -> bool:
+    t = (text or "").lower()
+    return any(p in t for p in _INTENT_PHRASES)
+
+
+# Spoken immediately when a tool round starts, so the caller hears progress
+# instead of silence during the tool + follow-up-LLM latency (1.5–4s). Only
+# the tools slow/notable enough to warrant it.
+_TOOL_FILLERS = {
+    "check_availability": "Let me pull up the calendar real quick.",
+    "book_appointment": "One second while I get that booked for you.",
+    "draft_quote": "Give me just a moment to put those numbers together.",
+}
+
 
 def _tools_for_openai(tools: list[dict]) -> list[dict]:
     out = []
@@ -104,6 +137,7 @@ def run_openai_loop(
 
     should_end = False
     last_tool: str | None = None
+    nudged = False
 
     while True:
         resp = client.chat.completions.create(
@@ -116,7 +150,14 @@ def run_openai_loop(
         choice = resp.choices[0]
         msg = choice.message
         if not msg.tool_calls:
-            return {"text": (msg.content or "").strip(), "end_call": should_end}
+            text = (msg.content or "").strip()
+            if not nudged and last_tool is None and _verbalized_intent(text):
+                nudged = True
+                logger.info("[NUDGE] verbalized intent without tool_call — retrying with explicit instruction")
+                oa_messages.append({"role": "assistant", "content": text})
+                oa_messages.append({"role": "user", "content": _NUDGE_MESSAGE})
+                continue
+            return {"text": text, "end_call": should_end}
 
         # Append the assistant's tool-call message so the model has context for the result.
         oa_messages.append({
@@ -191,6 +232,9 @@ def run_openai_loop_streaming(
     should_end = False
     last_tool: str | None = None
     spoken: list[str] = []
+    nudged = False
+    filler_sent = False
+    ran_tool = False
 
     while True:
         stream = client.chat.completions.create(
@@ -204,6 +248,7 @@ def run_openai_loop_streaming(
 
         tool_acc: dict[int, dict] = {}
         assistant_text: list[str] = []
+        turn_spoken: list[str] = []
         for chunk in stream:
             if not getattr(chunk, "choices", None):
                 continue
@@ -227,11 +272,22 @@ def run_openai_loop_streaming(
                 # it live. Otherwise buffer it onto the assistant tool-call message.
                 if not tool_acc:
                     spoken.append(content)
+                    turn_spoken.append(content)
                     yield content
                 else:
                     assistant_text.append(content)
 
         if not tool_acc:
+            # "Let me check…" with no tool call would strand the caller in dead
+            # air until they speak again. Nudge once; the filler text was already
+            # streamed, so the retried turn's tool result follows it naturally.
+            text_this_turn = "".join(turn_spoken)
+            if not nudged and not ran_tool and _verbalized_intent(text_this_turn):
+                nudged = True
+                logger.info("[NUDGE·stream] verbalized intent without tool_call — retrying")
+                oa_messages.append({"role": "assistant", "content": text_this_turn})
+                oa_messages.append({"role": "user", "content": _NUDGE_MESSAGE})
+                continue
             break  # plain text turn complete
 
         oa_messages.append({
@@ -243,6 +299,20 @@ def run_openai_loop_streaming(
                 for a in tool_acc.values()
             ],
         })
+
+        # Tool turns rarely carry spoken text, so without this the caller hears
+        # pure silence for the tool + follow-up-model latency. Speak one short
+        # progress line the moment we know which tool is running. (Skip after a
+        # nudge — the caller already heard the model's own "one moment" line.)
+        if not filler_sent and not nudged:
+            for a in tool_acc.values():
+                filler = _TOOL_FILLERS.get(a["name"])
+                if filler:
+                    filler_sent = True
+                    prefix = " " if spoken else ""
+                    spoken.append(prefix + filler)
+                    yield prefix + filler
+                    break
 
         for a in tool_acc.values():
             name = a["name"]
@@ -259,6 +329,7 @@ def run_openai_loop_streaming(
                 continue
 
             last_tool = name
+            ran_tool = True
             logger.info("[TOOL] %s %s", name, json.dumps(tool_input))
             try:
                 result = execute_tool(name, tool_input)
