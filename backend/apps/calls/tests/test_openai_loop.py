@@ -42,7 +42,7 @@ TOOLS = [{"name": "check_availability", "description": "check", "input_schema": 
 
 
 class StreamingNudgeTests(SimpleTestCase):
-    def _run(self, client, execute_tool=None):
+    def _run(self, client, execute_tool=None, done_tools=frozenset()):
         out = {}
         tokens = list(run_openai_loop_streaming(
             client,
@@ -51,6 +51,7 @@ class StreamingNudgeTests(SimpleTestCase):
             conversation_history=[{"role": "user", "content": "any times tomorrow?"}],
             execute_tool=execute_tool or (lambda n, i: {"available": ["08:00"]}),
             out=out,
+            done_tools=done_tools,
         ))
         return tokens, out
 
@@ -90,6 +91,29 @@ class StreamingNudgeTests(SimpleTestCase):
         tokens, out = self._run(client)
         self.assertEqual(client.calls, 1)
         self.assertEqual("".join(tokens), "We're open weekdays eight to six.")
+
+    def test_claimed_completion_without_booking_is_nudged(self):
+        # Observed live: "you're set for tomorrow at 1 PM ... confirmation by
+        # text shortly" spoken with book_appointment never called.
+        client = FakeStreamingClient([
+            [_text_chunk("Great choice! You're set for tomorrow at one P M.")],
+            [_tool_chunk(0, "call_1", "book_appointment", '{"date": "2026-07-17", "time": "13:00"}')],
+            [_text_chunk("Booked! Anything else?")],
+        ])
+        fired = []
+        tokens, out = self._run(client, lambda n, i: fired.append(n) or {"success": True})
+        self.assertEqual(fired, ["book_appointment"],
+                         "a completion claim with no booking must be forced into the tool call")
+
+    def test_completion_claim_after_a_real_booking_is_not_nudged(self):
+        # "You're all set!" is a legitimate closing line once book_appointment
+        # already ran earlier in the call — no nudge, no re-fire.
+        client = FakeStreamingClient([
+            [_text_chunk("You're all set! Anything else I can help with?")],
+        ])
+        tokens, out = self._run(client, done_tools=frozenset({"book_appointment"}))
+        self.assertEqual(client.calls, 1)
+        self.assertEqual("".join(tokens), "You're all set! Anything else I can help with?")
 
     def test_tool_turn_speaks_a_filler_while_the_tool_runs(self):
         client = FakeStreamingClient([

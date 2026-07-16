@@ -33,14 +33,32 @@ _INTENT_PHRASES = (
 )
 
 _NUDGE_MESSAGE = (
-    "[system: you just told the caller you're doing it — call the actual tool NOW "
-    "in this response. Do not reply with more talk.]"
+    "[system: you told the caller you'd do it or that it's already done, but the "
+    "matching tool has NOT been called this call. Call the actual tool NOW in this "
+    "response — do not reply with more talk. If a required field is missing, ask "
+    "for it instead.]"
+)
+
+# "You're all set for tomorrow at 1 PM" with no book_appointment call = the
+# caller believes they're booked while the dashboard shows nothing (observed
+# live). Only nudged when book_appointment hasn't already run this call.
+_COMPLETION_PHRASES = (
+    "you're booked", "you are booked", "you're all set", "you are all set",
+    "you're set for", "you are set for", "i've booked", "i have booked",
+    "i've scheduled", "i have scheduled", "we've got you down",
+    "you'll get a confirmation", "you will get a confirmation",
+    "you'll receive a confirmation", "confirmation by text",
 )
 
 
 def _verbalized_intent(text: str) -> bool:
     t = (text or "").lower()
     return any(p in t for p in _INTENT_PHRASES)
+
+
+def _claimed_completion(text: str) -> bool:
+    t = (text or "").lower()
+    return any(p in t for p in _COMPLETION_PHRASES)
 
 
 # Spoken immediately when a tool round starts, so the caller hears progress
@@ -123,6 +141,18 @@ def _claude_to_openai(messages: list[dict]) -> list[dict]:
     return out
 
 
+def _needs_nudge(text: str, done_tools: frozenset) -> bool:
+    """A text-only turn that promises or claims tool work that never ran.
+
+    Completion claims ("you're all set") are only nudged when book_appointment
+    hasn't fired this call — after a real booking, closing lines like
+    "You're all set!" are legitimate speech, not a stall.
+    """
+    if _verbalized_intent(text):
+        return True
+    return _claimed_completion(text) and "book_appointment" not in done_tools
+
+
 def run_openai_loop(
     client,
     *,
@@ -130,6 +160,7 @@ def run_openai_loop(
     tools: list[dict],
     conversation_history: list[dict],
     execute_tool,
+    done_tools: frozenset = frozenset(),
 ) -> dict[str, Any]:
     """Run the OpenAI agentic loop. Mirrors handle_conversation_turn in receptionist.py."""
     oa_tools = _tools_for_openai(tools)
@@ -151,7 +182,7 @@ def run_openai_loop(
         msg = choice.message
         if not msg.tool_calls:
             text = (msg.content or "").strip()
-            if not nudged and last_tool is None and _verbalized_intent(text):
+            if not nudged and last_tool is None and _needs_nudge(text, done_tools):
                 nudged = True
                 logger.info("[NUDGE] verbalized intent without tool_call — retrying with explicit instruction")
                 oa_messages.append({"role": "assistant", "content": text})
@@ -216,6 +247,7 @@ def run_openai_loop_streaming(
     conversation_history: list[dict],
     execute_tool,
     out: dict[str, Any],
+    done_tools: frozenset = frozenset(),
 ):
     """Streaming twin of run_openai_loop. A generator that yields assistant text
     deltas (str) as the model produces them, so Vapi can start speaking within a
@@ -282,7 +314,7 @@ def run_openai_loop_streaming(
             # air until they speak again. Nudge once; the filler text was already
             # streamed, so the retried turn's tool result follows it naturally.
             text_this_turn = "".join(turn_spoken)
-            if not nudged and not ran_tool and _verbalized_intent(text_this_turn):
+            if not nudged and not ran_tool and _needs_nudge(text_this_turn, done_tools):
                 nudged = True
                 logger.info("[NUDGE·stream] verbalized intent without tool_call — retrying")
                 oa_messages.append({"role": "assistant", "content": text_this_turn})

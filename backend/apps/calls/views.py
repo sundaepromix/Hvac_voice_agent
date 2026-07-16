@@ -401,6 +401,18 @@ class VapiWebhook(APIView):
                 if len(existing) > 1:
                     Call.objects.filter(pk__in=[c.pk for c in existing[1:]]).delete()
 
+        # Safety net: a call that ended without the agent ever capturing a lead
+        # (model stalled, caller hung up mid-flow) still lands in the dashboard,
+        # extracted from the final transcript. Best-effort — never fails the webhook.
+        if msg_type == "end-of-call-report" and (transcript or "").strip():
+            try:
+                from apps.calls.services.persistence import recover_lead_from_transcript
+                recover_lead_from_transcript(business, provider_call_id, transcript,
+                                             caller_phone=from_number or None)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[VAPI] transcript lead recovery failed for %s: %s",
+                               provider_call_id, exc)
+
         if msg_type in ("end-of-call-report", "hang"):
             try:
                 from apps.calls.agent.receptionist import forget_call

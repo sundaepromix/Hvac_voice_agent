@@ -381,6 +381,7 @@ def handle_conversation_turn(conversation_history: list, caller_phone: str | Non
             tools=TOOLS,
             conversation_history=conversation_history,
             execute_tool=dispatch,
+            done_tools=frozenset(_tools_already_run(call_id)),
         )
         # Defer hangup once so Vapi can play the closing line — but only the
         # FIRST time. If we've already deferred this call, fire end_call for
@@ -588,6 +589,7 @@ def stream_conversation_turn(conversation_history: list, caller_phone: str | Non
                 conversation_history=conversation_history,
                 execute_tool=dispatch,
                 out=out,
+                done_tools=frozenset(_tools_already_run(call_id)),
             )
         except Exception as exc:  # noqa: BLE001 — never drop the live call; speak a recovery line
             logger.error("[STREAM ERROR] call_id=%s: %s", call_id, exc)

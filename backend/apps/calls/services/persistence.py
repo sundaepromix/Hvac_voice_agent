@@ -251,6 +251,51 @@ def book_appointment_tool(payload: dict[str, Any], verified_phone: str | None = 
     }
 
 
+def recover_lead_from_transcript(business: Business, call_id: str, transcript: str,
+                                 caller_phone: str | None = None) -> Lead | None:
+    """Safety net for the end-of-call report: if the agent never captured a
+    lead during the call (model stalled, call dropped mid-flow), extract one
+    from the final transcript so no conversation disappears from the dashboard.
+
+    No-op when a Lead already exists for this call, or when the transcript
+    yields nothing worth saving (wrong numbers, spam, instant hangups).
+    """
+    if Lead.objects.filter(business=business, extracted_fields__vapi_call_id=call_id).exists():
+        return None
+
+    from apps.ai.services import extract_lead_from_transcript
+    data = extract_lead_from_transcript(transcript, business=business)
+    name = (data.get("customer_name") or "").strip()
+    summary = (data.get("project_summary") or "").strip()
+    phone = (caller_phone or "").strip() or None
+    if not (name or summary or phone):
+        return None
+
+    cust = upsert_customer(
+        business=business,
+        name=name or None,
+        phone=phone,
+        email=(data.get("customer_email") or "").strip() or None,
+        address=(data.get("address") or "").strip() or None,
+    )
+    estimated = data.get("estimated_value")
+    extracted = {k: v for k, v in data.items() if v not in (None, "", [])}
+    extracted["vapi_call_id"] = call_id
+    extracted["source"] = "transcript_recovery"
+    lead = Lead.objects.create(
+        business=business,
+        customer=cust,
+        project_summary=(summary or "Recovered from call transcript — review recording")[:512],
+        status="qualifying",
+        temperature=data.get("temperature") or "warm",
+        estimated_value=Decimal(str(estimated)) if isinstance(estimated, (int, float)) else None,
+        extracted_fields=extracted,
+    )
+    logger.info("[TRANSCRIPT RECOVERY] lead=%s customer=%s call=%s (agent captured nothing during the call)",
+                lead.id, cust.id, call_id)
+    return lead
+
+
 def transfer_to_human_tool(payload: dict[str, Any], verified_phone: str | None = None,
                            call_id: str | None = None) -> dict[str, Any]:
     """Tool implementation: log a priority human-callback request.
