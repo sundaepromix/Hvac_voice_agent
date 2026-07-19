@@ -9,38 +9,17 @@ empty string so a live call can never break on a memory lookup.
 from __future__ import annotations
 
 import logging
-import re
 from datetime import date, datetime
 
 from django.core.cache import cache
+
+from apps.leads.phones import find_customer_by_phone
 
 logger = logging.getLogger(__name__)
 
 _CTX_TTL = 60 * 60  # matches the per-call state TTL in receptionist.py
 _MAX_LEADS = 3
 _SUMMARY_CHARS = 100
-
-
-def _find_customer(business, phone: str):
-    from apps.leads.models import Customer
-
-    cust = Customer.objects.filter(business=business, phone=phone).first()
-    if cust:
-        return cust
-    # Formats drift between channels ("+1 (555) 123-4567" vs "+15551234567"):
-    # fall back to comparing the last 10 digits, normalized on BOTH sides.
-    # The endswith on the last 4 is only a cheap DB prefilter.
-    digits = re.sub(r"\D", "", phone)[-10:]
-    if len(digits) < 7:
-        return None
-    candidates = (
-        Customer.objects.filter(business=business, phone__endswith=digits[-4:])
-        .exclude(phone="")[:50]
-    )
-    for cust in candidates:
-        if re.sub(r"\D", "", cust.phone)[-10:] == digits:
-            return cust
-    return None
 
 
 def _past_leads(customer, call_id: str | None) -> list:
@@ -139,10 +118,13 @@ def known_caller_block(business, caller_phone: str | None, call_id: str | None =
 
     block = ""
     try:
-        customer = _find_customer(business, phone)
+        customer = find_customer_by_phone(business, phone)
         if customer:
             leads = _past_leads(customer, call_id)
-            if leads or customer.name:
+            # Strict rule: "welcome back" needs at least one lead from a PAST
+            # call. A customer row alone (created minutes ago, this same call)
+            # must never make Mary greet a first-time caller like an old friend.
+            if leads:
                 block = _render(
                     customer, leads, _latest_quote(customer), _upcoming_booking(leads),
                 )

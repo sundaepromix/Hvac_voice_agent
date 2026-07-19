@@ -87,6 +87,17 @@ class KnownCallerBlockTests(TestCase):
         self.assertEqual(first, second)
         self.assertNotIn("Mid-call surprise", second)
 
+    def test_customer_without_past_leads_is_not_welcomed_back(self):
+        # A customer row alone (e.g. created earlier in THIS call by
+        # qualify_lead) must never trigger the returning-caller greeting.
+        block = known_caller_block(self.business, "+15551234567", call_id="call-first")
+        self.assertEqual(block, "")
+
+        self._lead(summary="Live call in progress", vapi_call_id="call-first")
+        cache.clear()
+        block = known_caller_block(self.business, "+15551234567", call_id="call-first")
+        self.assertEqual(block, "")
+
     def test_missing_phone_or_business(self):
         self.assertEqual(known_caller_block(self.business, None), "")
         self.assertEqual(known_caller_block(self.business, "   "), "")

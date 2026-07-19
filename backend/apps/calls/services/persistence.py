@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from apps.core.models import Business
 from apps.leads.models import Conversation, Customer, Lead, Message
+from apps.leads.phones import find_customer_by_phone, normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -21,17 +22,23 @@ def _default_business() -> Business | None:
 
 def upsert_customer(business: Business, name: str | None = None, phone: str | None = None,
                     email: str | None = None, address: str | None = None) -> Customer:
-    """Find-or-create a Customer for this business, keyed by phone (then email)."""
+    """Find-or-create a Customer for this business, keyed by phone (then email).
+
+    Phones are normalized before storage and matched digit-tail-wise, so
+    "0812 345 6789" and "+2348123456789" land on ONE customer row instead of
+    creating a duplicate the returning-caller memory can't find.
+    """
+    phone = normalize_phone(phone)
     cust = None
     if phone:
-        cust = Customer.objects.filter(business=business, phone=phone).first()
+        cust = find_customer_by_phone(business, phone)
     if not cust and email:
         cust = Customer.objects.filter(business=business, email=email).first()
     if not cust:
         cust = Customer.objects.create(
             business=business,
             name=name or "",
-            phone=phone or "",
+            phone=phone,
             email=email or "",
             address=address or "",
         )
@@ -46,6 +53,11 @@ def upsert_customer(business: Business, name: str | None = None, phone: str | No
             dirty = True
         if address and cust.address != address:
             cust.address = address
+            dirty = True
+        # Upgrade the stored number when the new one is more canonical —
+        # verified caller ID with country code beats a spoken local format.
+        if phone and cust.phone != phone and phone.startswith("+") and not cust.phone.startswith("+"):
+            cust.phone = phone
             dirty = True
         if dirty:
             cust.save()
