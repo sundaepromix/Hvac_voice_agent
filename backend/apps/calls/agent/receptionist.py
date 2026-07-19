@@ -8,6 +8,7 @@ from typing import Any
 from django.conf import settings
 from django.core.cache import cache
 
+from apps.calls.services.caller_memory import known_caller_block
 from apps.calls.services.email import send_email
 from apps.calls.services.persistence import (
     book_appointment_tool,
@@ -333,6 +334,9 @@ def _prepare_turn(conversation_history: list, caller_phone: str | None, call_id:
             f"\n\nCALLER INFO:\n- Caller's phone is {caller_phone}. Use it as the default "
             f"contact unless they ask you to use a different number."
         )
+        memory_block = known_caller_block(biz, caller_phone, call_id=call_id)
+        if memory_block:
+            system_prompt += "\n\n" + memory_block
     else:
         system_prompt += (
             "\n\nCALLER INFO:\n- Caller ID is not available for this call. Ask the caller "
